@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>益智闯关 · 方块拼图（PC 预览）</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #ffffff 0%, #e8ecf2 55%, #dfe4ec 100%);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: #2c3036;
+    display: flex; align-items: center; justify-content: center;
+    gap: 34px; padding: 24px; flex-wrap: wrap;
+  }
+  .frame {
+    position: relative;
+    padding: 12px;
+    background: linear-gradient(180deg, #3a3f47, #23262b);
+    border-radius: 46px;
+    box-shadow: 0 30px 60px -18px rgba(20,24,30,.45), 0 2px 0 rgba(255,255,255,.18) inset;
+  }
+  #stage {
+    position: relative;
+    height: min(844px, 88vh);
+    aspect-ratio: 390 / 844;
+    border-radius: 34px;
+    overflow: hidden;
+    background: #eff1f4;
+  }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .notch {
+    position: absolute; left: 50%; top: 20px; transform: translateX(-50%);
+    width: 84px; height: 5px; border-radius: 3px; background: rgba(0,0,0,.28); z-index: 2;
+    pointer-events: none;
+  }
+  aside { width: 268px; max-width: 92vw; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: .5px; }
+  .kicker { font-size: 11px; color: #8b9199; letter-spacing: 2px; margin-bottom: 18px; }
+  .card { background: #fff; border-radius: 16px; padding: 14px 16px; margin-bottom: 12px;
+          box-shadow: 0 8px 22px -14px rgba(23,26,31,.35); }
+  .card h2 { font-size: 12px; margin: 0 0 8px; color: #8b9199; font-weight: 600; letter-spacing: .5px; }
+  ul { margin: 0; padding-left: 18px; font-size: 12.5px; color: #4b5058; }
+  li { margin: 3px 0; }
+  button {
+    width: 100%; margin-top: 4px; padding: 9px 12px; font: inherit; font-size: 13px;
+    border: 0; border-radius: 10px; background: #3e6fbf; color: #fff; cursor: pointer;
+  }
+  button.ghost { background: #eef0f4; color: #2c3036; }
+  button:hover { filter: brightness(1.05); }
+  .hint { font-size: 11.5px; color: #8b9199; margin-top: 10px; }
+  code { background: #eef0f4; padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
+  #err {
+    display: none; position: absolute; left: 12px; right: 12px; bottom: 12px;
+    max-height: 40%; overflow: auto; margin: 0; padding: 10px 12px;
+    background: rgba(201,70,63,.94); color: #fff; border-radius: 12px;
+    font: 11px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<div class="frame">
+  <div id="stage"><div class="notch"></div></div>
+  <pre id="err" style="display:none"></pre>
+</div>
+
+<script>
+  // 预览页排错用：任何脚本错误直接显示在手机框里，避免"白屏不知道为啥"
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent += (e.message || 'error') + '\n' + (e.filename || '').split('/').pop() +
+      ':' + e.lineno + '\n';
+  });
+</script>
+
+<aside>
+  <h1>益智闯关 · 合集</h1>
+  <div class="kicker">PUZZLE ARCADE · 预览</div>
+
+  <div class="card">
+    <h2>合集里的两款游戏</h2>
+    <ul>
+      <li><b>方块拼图</b>：棋盘从小到大（4×4 → 8×8），把托盘里的方块拖进去铺满</li>
+      <li><b>逻辑拼图</b>：固定 8×8；开局已放好 3 块黑色拼图（占 3 / 2 / 1 格），
+          把剩下 8 块拖进去填满</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>操作</h2>
+    <ul>
+      <li>把托盘里的方块拖进棋盘</li>
+      <li>方块自动吸附网格，填满全部格子即过关</li>
+      <li>棋盘上的方块也能再拖起来重摆（黑色固定块不行）</li>
+      <li>底部有撤销 / 重置 / 提示</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>这套预览和小游戏是同一份代码</h2>
+    <ul>
+      <li>逻辑层：<code>js/game/</code>（两款游戏的生成器）+ <code>js/scenes/</code>（共用玩法场景）</li>
+      <li>宿主层：<code>js/platform/browser.js</code> ↔ <code>wx.js</code></li>
+      <li>小游戏里换成 wx 适配层即可，玩法代码一行不改</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>调试</h2>
+    <button id="unlock">解锁全部关卡</button>
+    <button id="reset" class="ghost">清空存档</button>
+    <div class="hint">存档写在 localStorage，键名 <code>puzzle_arcade_save_v1</code></div>
+  </div>
+</aside>
+
+<script src="../js/core/ns.js"></script>
+<script src="../js/core/palette.js"></script>
+<script src="../js/core/draw.js"></script>
+<script src="../js/platform/browser.js"></script>
+<script src="../js/core/save.js"></script>
+<script src="../js/game/generator.js"></script>
+<script src="../js/game/logic.js"></script>
+<script src="../js/game/model.js"></script>
+<script src="../js/scenes/home.js"></script>
+<script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/play.js"></script>
+<script src="../js/app.js"></script>
+<script>
+  document.getElementById('unlock').onclick = function () {
+    BF.Save.bucket('block').unlocked = BF.Levels.TOTAL;
+    BF.Save.bucket('logic').unlocked = BF.Logic.TOTAL;
+    BF.Save.flush();
+    BF.App.go('levels', { game: 'block' });
+  };
+  document.getElementById('reset').onclick = function () {
+    BF.Save.resetAll();
+    BF.App.go('home');
+  };
+</script>
+</body>
+</html>

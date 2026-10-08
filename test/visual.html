@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>视觉快照（开发用，不参与小游戏打包）</title>
+<style>
+  body { margin: 0; padding: 16px; background: #e9ecf1;
+         font: 12px/1.5 -apple-system, "Microsoft YaHei", sans-serif; color: #2c3036; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  #row { display: flex; flex-wrap: wrap; gap: 14px; }
+  figure { margin: 0; background: #fff; border-radius: 14px; padding: 8px;
+           box-shadow: 0 6px 18px -10px rgba(23,26,31,.4); }
+  figure img { display: block; width: 320px; border-radius: 8px; }
+  figcaption { text-align: center; padding: 6px 0 2px; color: #6b7178; font-size: 11.5px; }
+  #err { color: #c9463f; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>方块拼图 · 视觉快照（由真实 Canvas 导出，非示意图）</h1>
+<div id="err"></div>
+<div id="row"></div>
+
+<div id="stage" style="position:absolute;left:-9999px;top:0;width:390px;height:844px"></div>
+
+<script>
+  window.addEventListener('error', function (e) {
+    document.getElementById('err').textContent += (e.message || 'error') + ' @' + e.lineno + '\n';
+  });
+</script>
+<script src="../js/core/ns.js"></script>
+<script src="../js/core/palette.js"></script>
+<script src="../js/core/draw.js"></script>
+<script src="../js/platform/browser.js"></script>
+<script src="../js/core/save.js"></script>
+<script src="../js/game/generator.js"></script>
+<script src="../js/game/logic.js"></script>
+<script src="../js/game/model.js"></script>
+<script src="../js/scenes/home.js"></script>
+<script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/play.js"></script>
+<script src="../js/app.js"></script>
+<script>
+(function () {
+  var row = document.getElementById('row');
+  // ?only=3      → 只渲染第 3 个场景，并按原始分辨率展示（细看用）
+  // ?only=3&w=640 → 指定展示宽度
+  var q = {};
+  location.search.replace(/^\?/, '').split('&').forEach(function (kv) {
+    if (!kv) { return; }
+    var p = kv.split('=');
+    q[p[0]] = p[1];
+  });
+  var only = q.only ? parseInt(q.only, 10) : 0;
+  // 单场景模式按原始尺寸展示，方便 1:1 检查像素（配窄窗口截图）
+  var showW = q.w ? (parseInt(q.w, 10) + 'px') : (only ? 'auto' : '320px');
+
+  function settle(n) {
+    for (var i = 0; i < (n || 40); i++) {
+      var c = BF.App.current;
+      if (c.update) { c.update(16); }
+      c.render(BF.platform.ctx);
+    }
+  }
+
+  /** post：跑完帧之后、截图之前执行，用来抓"动画中途 / 按下态"这类瞬时状态 */
+  function snap(caption, setup, post) {
+    if (setup) { setup(); }
+    settle(45);
+    var sc = BF.App.current;
+    // ?debug=1 → 在棋盘上叠加网格线与方块编号，用来自检"方块是否真的对齐网格"
+    if (q.debug && sc && sc.L && sc.model && sc.L.inner) {
+      var c = BF.platform.ctx, L = sc.L, n = sc.model.size;
+      c.save();
+      c.strokeStyle = 'rgba(220,40,40,0.85)';
+      c.lineWidth = 1;
+      for (var gi = 0; gi <= n; gi++) {
+        c.beginPath();
+        c.moveTo(L.inner.x + gi * L.cell, L.inner.y);
+        c.lineTo(L.inner.x + gi * L.cell, L.inner.y + n * L.cell);
+        c.stroke();
+        c.beginPath();
+        c.moveTo(L.inner.x, L.inner.y + gi * L.cell);
+        c.lineTo(L.inner.x + n * L.cell, L.inner.y + gi * L.cell);
+        c.stroke();
+      }
+      c.restore();
+      var inside = 0, outside = 0;
+      for (var pi = 0; pi < sc.model.pieces.length; pi++) {
+        var pp = sc.model.pieces[pi];
+        if (!pp.placed) { continue; }
+        var ox = Math.abs(pp.px - (L.inner.x + pp.x * L.cell));
+        var oy = Math.abs(pp.py - (L.inner.y + pp.y * L.cell));
+        if (ox < 0.6 && oy < 0.6) { inside++; } else { outside++; }
+      }
+      document.getElementById('err').textContent +=
+        'DEBUG 对齐检查: 网格 ' + n + 'x' + n + ' / cell=' + L.cell.toFixed(2) +
+        ' / inner=' + Math.round(L.inner.w) + 'px / 在格内=' + inside + ' 偏移=' + outside + '\n';
+    }
+    if (post) { post(sc); }
+    var url = BF.platform.canvas.toDataURL('image/png');
+    var fig = document.createElement('figure');
+    var img = document.createElement('img');
+    img.src = url;
+    if (showW) { img.style.width = showW + 'px'; }
+    var cap = document.createElement('figcaption');
+    cap.textContent = caption + '  [' + BF.platform.canvas.width + 'x' + BF.platform.canvas.height + ']';
+    fig.appendChild(img); fig.appendChild(cap);
+    row.appendChild(fig);
+  }
+
+  /** 把整关按标准答案摆好（同时同步动画目标，否则会被 update 拉回托盘） */
+  function solveAll(sc) {
+    var m = sc.model;
+    for (var i = 0; i < m.pieces.length; i++) {
+      var p = m.pieces[i];
+      if (!p.placed) { m.place(p, p.solX, p.solY); }
+      p.px = sc.L.inner.x + p.x * sc.L.cell;
+      p.py = sc.L.inner.y + p.y * sc.L.cell;
+      p.tx = p.px; p.ty = p.py;
+      p.scale = 1; p.tScale = 1;
+    }
+    sc.layoutTray();
+  }
+
+  /** 模拟一次拖拽（按下托盘的块 → 移到目标格） */
+  function startDrag(sc, piece, gx, gy) {
+    var cx = piece.px + piece.w * sc.L.cell * piece.scale / 2;
+    var cy = piece.py + piece.h * sc.L.cell * piece.scale / 2;
+    sc.onDown(cx, cy);
+    sc.onMove(sc.L.inner.x + (gx + piece.w / 2) * sc.L.cell,
+      sc.L.inner.y + (gy + piece.h / 2) * sc.L.cell);
+  }
+
+  function freshSave() {
+    BF.Save.resetAll();
+  }
+
+  var SCENES = [
+    ['① 合集首页', function () {
+      freshSave();
+      BF.App.go('home');
+    }],
+    ['② 方块拼图 · 关卡选择（已解锁 12 关）', function () {
+      var b = BF.Save.bucket('block');
+      b.unlocked = 12;
+      b.cleared = { '1': 3, '2': 3, '3': 2, '4': 3, '5': 1, '6': 3, '7': 2, '8': 3, '9': 3, '10': 3, '11': 2 };
+      BF.App.go('levels', { game: 'block' });
+    }],
+    ['③ 方块拼图 · 第 1 关初始', function () {
+      BF.App.go('play', { level: 1, game: 'block' });
+    }],
+    ['④ 方块拼图 · 拖拽中(绿框合法落点)', function () {
+      BF.App.go('play', { level: 1, game: 'block' });
+      var sc = BF.App.scenes.play;
+      var p = sc.model.trayPieces()[0];
+      startDrag(sc, p, 0, 0);
+      settle(4);
+    }],
+    ['⑤ 方块拼图 · 拖拽中(红框被占)', function () {
+      BF.App.go('play', { level: 1, game: 'block' });
+      var sc = BF.App.scenes.play;
+      var p0 = sc.model.pieces[sc.model.puzzle.order[0]];
+      sc.model.place(p0, p0.solX, p0.solY);
+      sc.layoutTray();
+      var rest = sc.model.trayPieces();
+      if (rest.length) { startDrag(sc, rest[0], p0.solX, p0.solY); }
+      settle(4);
+    }],
+    ['⑥ 方块拼图 · 第 20 关(6×6) 填满', function () {
+      BF.App.go('play', { level: 20, game: 'block' });
+      solveAll(BF.App.scenes.play);
+    }],
+    ['⑦ 方块拼图 · 第 55 关(8×8) 填满', function () {
+      BF.App.go('play', { level: 55, game: 'block' });
+      solveAll(BF.App.scenes.play);
+    }],
+    ['⑧ 方块拼图 · 过关结算', function () {
+      BF.App.go('play', { level: 3, game: 'block' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }],
+    ['⑨ 每日挑战 · 结算', function () {
+      BF.App.go('play', { daily: true });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.model.hintCount = 1;
+      sc.onSolved();
+    }],
+
+    /* ---------------- 游戏 2「逻辑拼图」 ---------------- */
+    ['⑩ 逻辑拼图 · 第 1 关题面（3 块黑 + 圆环点阵）', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+    }],
+    ['⑪ 逻辑拼图 · 拖拽中', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      var sc = BF.App.scenes.play;
+      var rest = sc.model.trayPieces();
+      if (rest.length) { startDrag(sc, rest[0], 3, 3); }
+      settle(4);
+    }],
+    ['⑫ 逻辑拼图 · 第 1 关填满', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      solveAll(BF.App.scenes.play);
+    }],
+    ['⑬ 逻辑拼图 · 第 12 关填满', function () {
+      BF.App.go('play', { level: 12, game: 'logic' });
+      solveAll(BF.App.scenes.play);
+    }],
+    ['⑭ 逻辑拼图 · 过关结算', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }],
+    /* -------- 过关弹窗：动画中途 + 按下态（验证按钮跟着卡片缩放、按下有反馈） -------- */
+    ['⑮ 过关弹窗 · 弹出动画中途（按钮应在卡片内、一起缩放）', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }, function (sc) {
+      sc.win.t = 70;                       // 强行回到弹出动画中途
+      sc.render(BF.platform.ctx);
+    }],
+    ['⑯ 过关弹窗 · 按下「下一关」（应有按下态反馈）', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }, function (sc) {
+      sc.win.press = 'next';
+      sc.render(BF.platform.ctx);
+    }],
+    ['⑰ 过关弹窗 · 按下「重玩」（应有按下态反馈）', function () {
+      BF.App.go('play', { level: 1, game: 'logic' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }, function (sc) {
+      sc.win.press = 'again';
+      sc.render(BF.platform.ctx);
+    }],
+    ['⑱ 逻辑拼图 · 关卡选择', function () {
+      var b = BF.Save.bucket('logic');
+      b.unlocked = 9;
+      b.cleared = { '1': 3, '2': 3, '3': 3, '4': 2, '5': 3, '6': 1, '7': 3, '8': 3 };
+      BF.App.go('levels', { game: 'logic' });
+    }],
+    /* 真机出错时的兜底：以前屏幕底部只有一条没有文字的红色色块，
+       用户完全不知道发生了什么。这里在正常画面上叠加错误面板，确认文字真的看得见。 */
+    ['⑲ 异常兜底 · 错误面板（文字必须画得出来）', function () {
+      BF.App.go('play', { level: 7, game: 'block' });
+      var sc = BF.App.scenes.play;
+      var ids = sc.model.puzzle.order.slice(0, 3);
+      ids.forEach(function (id) {
+        var p = sc.model.pieces[id];
+        sc.model.place(p, p.solX, p.solY);
+      });
+    }, function (sc) {
+      BF.App.err = 1;
+      BF.App.drawErrorBanner(BF.platform.ctx,
+        new Error("Cannot read properties of undefined (reading 'createLinearGradient')"));
+    }],
+    /* 用户反馈的图 2：同一关只渲染出前 3 块、托盘和底部按钮全空。
+       这是修复后的完整画面，用来对照"修好之后应该长什么样"。 */
+    ['⑳ 方块拼图 · 第 7 关完整画面（对照反馈截图）', function () {
+      BF.App.go('play', { level: 7, game: 'block' });
+    }]
+  ];
+
+  SCENES.forEach(function (s, i) {
+    if (only && i + 1 !== only) { return; }
+    snap(s[0], s[1], s[2]);
+  });
+
+  document.title = '视觉快照完成 · ' + row.children.length + ' 张';
+})();
+</script>
+</body>
+</html>
