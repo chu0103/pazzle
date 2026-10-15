@@ -113,17 +113,44 @@
 <script src="../js/platform/browser.js"></script>
 <script src="../js/core/save.js"></script>
 <script src="../js/game/generator.js"></script>
+<script src="../js/game/logic.js"></script>
+<script src="../js/game/photoAssets.js"></script>
+<script src="../js/game/photo.js"></script>
+<script src="../js/game/diffAssets.js"></script>
+<script src="../js/game/diff.js"></script>
+<script src="../js/game/bottle.js"></script>
+<script src="../js/game/cipher.js"></script>
+<script src="../js/game/rush.js"></script>
+<script src="../js/game/blocks.js"></script>
+<script src="../js/game/sudoku.js"></script>
+<script src="../js/game/mine.js"></script>
+<script src="../js/game/picross.js"></script>
 <script src="../js/game/model.js"></script>
 <script src="../js/scenes/home.js"></script>
 <script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/diffpick.js"></script>
+<script src="../js/scenes/ruletip.js"></script>
 <script src="../js/scenes/play.js"></script>
+<script src="../js/scenes/diff.js"></script>
+<script src="../js/scenes/bottle.js"></script>
+<script src="../js/scenes/cipher.js"></script>
+<script src="../js/scenes/rush.js"></script>
+<script src="../js/scenes/blocks.js"></script>
+<script src="../js/scenes/sudoku.js"></script>
+<script src="../js/scenes/mine.js"></script>
+<script src="../js/scenes/picross.js"></script>
 <script src="../js/app.js"></script>
 <script>
-  function refresh(){ if (BF.Save) { BF.Save.load(); } }
+  if (BF.Photos) { BF.Photos.base = '../'; }
+  if (BF.Diffs) { BF.Diffs.base = '../'; }
   document.getElementById('unlock').onclick = function () {
-    BF.Save.data.unlocked = BF.Levels.TOTAL;
+    // 存档已按游戏分桶（老版本这里是 BF.Levels.TOTAL，早已不存在）
+    for (var g in BF.games) {
+      if (!BF.games.hasOwnProperty(g)) { continue; }
+      BF.Save.bucket(g).unlocked = BF.games[g].TOTAL || 99;
+    }
     BF.Save.flush();
-    BF.App.go('levels');
+    BF.App.go('home');
   };
   document.getElementById('reset').onclick = function () {
     BF.Save.resetAll();

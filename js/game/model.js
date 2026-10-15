@@ -27,6 +27,8 @@
           id: p.id, w: p.w, h: p.h, color: p.color,
           solX: p.x, solY: p.y,          // 标准答案坐标（仅用于提示）
           fixed: !!p.fixed,              // 固定块：开局就位、不可拖动
+          // 照片拼图专用：归一化切片区域（0~1），渲染时乘以图片实际尺寸
+          u: p.u, v: p.v, uw: p.uw, vh: p.vh,
           placed: false, x: 0, y: 0,
           pop: 0,                        // 落子动效 0~1
           px: 0, py: 0, scale: 1, tScale: 1
@@ -140,13 +142,44 @@
   };
 
   Model.prototype.isSolved = function () {
-    return this.remaining() === 0 && this.filled() === this.area;
+    if (this.remaining() !== 0 || this.filled() !== this.area) { return false; }
+    // 照片拼图（strict）：填满还不够，每块必须回到它原来所在的格子。
+    // 前两款只要填满即可 —— 它们没有"唯一正确位置"这回事。
+    if (this.puzzle.strict) {
+      for (var i = 0; i < this.pieces.length; i++) {
+        var p = this.pieces[i];
+        if (!p.placed || p.x !== p.solX || p.y !== p.solY) { return false; }
+      }
+    }
+    return true;
+  };
+
+  /** 已落位但不在正确格子的块数（照片拼图用来提示"还有几块没归位"） */
+  Model.prototype.misplaced = function () {
+    var n = 0;
+    for (var i = 0; i < this.pieces.length; i++) {
+      var p = this.pieces[i];
+      if (p.placed && (p.x !== p.solX || p.y !== p.solY)) { n++; }
+    }
+    return n;
   };
 
   /** 提示：找第一个未放置的块，返回它的标准答案位置 */
   Model.prototype.hint = function () {
-    for (var i = 0; i < this.pieces.length; i++) {
-      var p = this.pieces[i];
+    var i, p;
+    // 照片拼图：卡住玩家的往往不是"没放完"，而是"放错了位置"，
+    // 所以先找错位的块，再找没放的块。
+    if (this.puzzle.strict) {
+      for (i = 0; i < this.pieces.length; i++) {
+        p = this.pieces[i];
+        if (p.placed && (p.x !== p.solX || p.y !== p.solY)) {
+          this.hintCount++;
+          return { piece: p, x: p.solX, y: p.solY, blocked: false, wrong: true };
+        }
+      }
+    }
+    for (i = 0; i < this.pieces.length; i++) {
+      p = this.pieces[i];
       if (p.placed) { continue; }
       var blocked = !this.canPlace(p, p.solX, p.solY);
       this.hintCount++;

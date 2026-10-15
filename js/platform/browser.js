@@ -18,6 +18,34 @@
   // 逻辑尺寸 = 舞台 CSS 尺寸（手机比例），物理尺寸按 dpr 放大保证清晰
   var W = stage.clientWidth || 390;
   var H = stage.clientHeight || 844;
+
+  /**
+   * ?device=375x667&st=20&sb=0 → 强制按真机逻辑尺寸渲染（含状态栏/底部安全区）。
+   * 为什么需要：有些排版问题只在真机上出现（首页 11 张卡在 iPhone 8 上把卡片压到 36px，
+   * 文字顶出卡片），浏览器默认 390×844 的舞台根本复现不出来。
+   */
+  var dq = {};
+  (function () {
+    var s = (location.search || '').replace(/^\?/, '');
+    s.split('&').forEach(function (kv) {
+      if (!kv) { return; }
+      var p = kv.split('=');
+      dq[p[0]] = p[1];
+    });
+  })();
+  var dev = /^(\d+)x(\d+)$/.exec(dq.device || '');
+  var safeTop = Math.max(0, parseInt(dq.st || '0', 10) || 0);
+  var safeBottom = Math.max(0, parseInt(dq.sb || '0', 10) || 0);
+  if (dev) {
+    W = parseInt(dev[1], 10);
+    H = parseInt(dev[2], 10);
+    stage.style.position = 'absolute';
+    stage.style.left = '0';
+    stage.style.top = '0';
+    stage.style.overflow = 'hidden';
+    stage.style.width = W + 'px';
+    stage.style.height = H + 'px';
+  }
   var dpr = Math.min(3, window.devicePixelRatio || 2);
 
   canvas.width = Math.floor(W * dpr);
@@ -114,8 +142,8 @@
     width: W,
     height: H,
     dpr: dpr,
-    safeTop: 0,
-    safeBottom: 0,
+    safeTop: safeTop,
+    safeBottom: safeBottom,
 
     now: function () { return (window.performance && performance.now) ? performance.now() : Date.now(); },
     requestFrame: function (cb) { schedule(cb); },

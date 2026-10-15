@@ -8,11 +8,12 @@
   var BF = G.BF || (G.BF = {});
 
   BF.PHOTO_ASSETS = [
-    { src: 'assets/photo/p1.jpg', color: '#C79774', w: 720, h: 720 },
-    { src: 'assets/photo/p2.jpg', color: '#F9DD92', w: 720, h: 720 },
-    { src: 'assets/photo/p3.jpg', color: '#58A53B', w: 720, h: 720 },
-    { src: 'assets/photo/p4.jpg', color: '#1D1C43', w: 720, h: 720 },
-    { src: 'assets/photo/p5.jpg', color: '#745329', w: 720, h: 720 },
-    { src: 'assets/photo/p6.jpg', color: '#65A5E1', w: 720, h: 720 },
+    { src: 'assets/photo/p1.jpg', color: '#C9AE8F', w: 600, h: 600 },
+    { src: 'assets/photo/p2.jpg', color: '#BE9077', w: 600, h: 600 },
+    { src: 'assets/photo/p3.jpg', color: '#FFFFFD', w: 600, h: 600 },
+    { src: 'assets/photo/p4.jpg', color: '#CBB097', w: 600, h: 600 },
+    { src: 'assets/photo/p5.jpg', color: '#FF1A0E', w: 600, h: 600 },
+    { src: 'assets/photo/p6.jpg', color: '#786469', w: 600, h: 600 },
+    { src: 'assets/photo/p7.jpg', color: '#BAA58B', w: 600, h: 600 },
   ];
 })();

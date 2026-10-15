@@ -51,7 +51,13 @@
     if (opt.letterSpacing && ctx.letterSpacing !== undefined) {
       try { ctx.letterSpacing = opt.letterSpacing; } catch (e) { /* 忽略 */ }
     }
-    ctx.fillText(str, x, y);
+    // maxWidth：canvas 会在超宽时自动压缩字距，作为"文案一定不出界"的最后一道兜底。
+    // 只有显式传了才生效，不影响任何既有调用。
+    if (opt.maxWidth != null && opt.maxWidth > 0) {
+      ctx.fillText(str, x, y, opt.maxWidth);
+    } else {
+      ctx.fillText(str, x, y);
+    }
     ctx.restore();
   }
 
@@ -168,6 +174,55 @@
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
+  }
+
+  /**
+   * 照片切片：把原图的一块区域画进目标矩形（游戏 3「照片拼图」用）
+   *
+   * 切片区域用**归一化**的 u/v/uw/vh（0~1），乘上图片真实尺寸后取源矩形 ——
+   * 这样内置图（720×720）和玩家从相册选的任意尺寸照片能共用一套代码。
+   *
+   * @returns {Boolean} 画成功了没有。返回 false 时调用方应退化成色块，
+   *                    否则图片没加载完的那一帧会是一大片空白。
+   */
+  function photoSlice(ctx, x, y, w, h, img, p, opt) {
+    opt = opt || {};
+    if (!img || !p) { return false; }
+    var iw = img.width || img.naturalWidth || 0;
+    var ih = img.height || img.naturalHeight || 0;
+    if (!iw || !ih) { return false; }
+
+    var pad = opt.pad || 0;
+    var dx = x + pad, dy = y + pad, dw = w - pad * 2, dh = h - pad * 2;
+    if (dw <= 0 || dh <= 0) { return false; }
+    var r = opt.radius != null ? opt.radius : 0;
+
+    var sx = (p.u || 0) * iw, sy = (p.v || 0) * ih;
+    var sw = (p.uw || 1) * iw, sh = (p.vh || 1) * ih;
+    if (sw <= 0 || sh <= 0) { return false; }
+
+    ctx.save();
+    if (opt.alpha != null) { ctx.globalAlpha = opt.alpha; }
+    if (opt.shadow !== false) {
+      ctx.shadowColor = 'rgba(23,26,31,0.28)';
+      ctx.shadowBlur = opt.lift ? Math.max(4, Math.min(w, h) * 0.18) : Math.max(2, Math.min(w, h) * 0.07);
+      ctx.shadowOffsetY = opt.lift ? Math.max(2, Math.min(w, h) * 0.07) : 1;
+    }
+    if (r > 0) { roundRect(ctx, dx, dy, dw, dh, r); ctx.clip(); }
+    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+    ctx.restore();
+
+    if (opt.stroke !== false) {
+      ctx.save();
+      if (opt.alpha != null) { ctx.globalAlpha = opt.alpha; }
+      roundRect(ctx, dx + 0.5, dy + 0.5, Math.max(1, dw - 1), Math.max(1, dh - 1), r);
+      // 极淡的浅色描边：既盖住可能的接缝，又让深色照片里的块也看得出边界
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+    return true;
   }
 
   /** 棋盘空格凹槽 */
@@ -413,6 +468,7 @@
     text: text,
     block: block,
     tile: tile,
+    photoSlice: photoSlice,
     slot: slot,
     boardFrame: boardFrame,
     dotGrid: dotGrid,

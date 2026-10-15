@@ -215,6 +215,17 @@
   var games = BF.games || (BF.games = {});
   games.block = {
     id: 'block',
+    // 「玩法说明」弹框（BF.RuleTip）：每次进这款游戏的第一个关卡时弹一次，
+    // 玩家勾选「不再提示」后写入 Save.extra(id,'noRule')，之后不再弹。
+    rules: {
+      sub: '拖拽方块 · 吸附网格 · 填满即过关',
+      lines: [
+        '把托盘里的方块拖到棋盘上',
+        '松手自动吸附到网格',
+        '填满整个棋盘即过关',
+        '有撤销、重置和提示可用',
+      ]
+    },
     title: '方块拼图',
     skin: 'block',
     TOTAL: Levels.TOTAL,

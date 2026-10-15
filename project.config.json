@@ -44,6 +44,14 @@
         "type": "folder"
       },
       {
+        "value": "tools",
+        "type": "folder"
+      },
+      {
+        "value": "assets/_tmp_demo",
+        "type": "folder"
+      },
+      {
         "value": "README.md",
         "type": "file"
       }

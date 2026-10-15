@@ -26,6 +26,11 @@
     this.meta = (BF.games && (BF.games[this.game] || BF.games.block));
     if (!this.meta) { throw new Error('未注册的游戏: ' + this.game); }
     this.total = this.meta.TOTAL;
+    // 有"难度"维度的游戏（照片拼图 3×3→8×8、找不同 3→8 处不同）
+    // 在关卡页顶部加一排难度快捷入口；纯关卡序号的游戏不显示。
+    this.hasDiff = !!(this.meta.difficulties && this.meta.firstLevelOfSize);
+    // 玩法场景：前三款共用 play，找不同是独立的 diff 场景
+    this.target = this.meta.scene || 'play';
 
     this.layout();
     this.fadeIn = 1;
@@ -45,9 +50,24 @@
 
     this.back = { x: 12, y: this.top + 6, w: 40, h: 40 };
 
-    this.listTop = this.top + 96;
+    this.listTop = this.hasDiff ? (this.top + 126) : (this.top + 96);
     this.listBottom = this.bottom - 8;
     this.viewH = this.listBottom - this.listTop;
+
+    // 照片拼图：在标题与关卡网格之间放一排"难度"快捷入口（3×3 ~ 8×8），
+    // 点一下直接进该档第一关。其它游戏没有难度维度，跳过。
+    this.chips = null;
+    if (this.hasDiff && this.meta.difficulties) {
+      var sizes = this.meta.difficulties;
+      var nC = sizes.length, mC = 16, gC = 6;
+      var cwC = (W - mC * 2 - gC * (nC - 1)) / nC;
+      this.chipY = this.top + 88;
+      this.chipLabelY = this.top + 76;
+      var self = this;
+      this.chips = sizes.map(function (sz, i) {
+        return { x: mC + i * (cwC + gC), y: self.chipY, w: cwC, h: 30, size: sz };
+      });
+    }
 
     var availW = W - 32;
     var gap = 10;
@@ -84,6 +104,15 @@
 
   SceneLevels.prototype.onDown = function (x, y) {
     if (U.pointInRect(x, y, this.back)) { this.press = { kind: 'back' }; return; }
+    // 难度快捷入口：点一下直接进入对应难度的第一关
+    if (this.hasDiff && this.chips) {
+      for (var ci = 0; ci < this.chips.length; ci++) {
+        if (U.pointInRect(x, y, this.chips[ci])) {
+          this.press = { kind: 'diff', idx: ci };
+          return;
+        }
+      }
+    }
     this.dragging = true;
     this.dragStartY = y;
     this.scrollStart = this.scroll;
@@ -108,13 +137,22 @@
       if (U.pointInRect(x, y, this.back)) { this.app.go('home'); }
       return;
     }
+    if (this.press && this.press.kind === 'diff') {
+      var di = this.press.idx;
+      this.press = null;
+      if (this.chips && U.pointInRect(x, y, this.chips[di])) {
+        var sz = this.chips[di].size;
+        this.app.go(this.target, { level: this.meta.firstLevelOfSize(sz), game: this.game });
+      }
+      return;
+    }
     if (!this.dragging) { return; }
     this.dragging = false;
     if (this.moved < 8) {
       var n = this.hitLevel(x, y);
       if (n) {
         if (n <= BF.Save.unlockedOf(this.game)) {
-          this.app.go('play', { level: n, game: this.game });
+          this.app.go(this.target, { level: n, game: this.game });
         } else {
           this.tapFx = { rect: this.rectOf(n), t: 420 };
         }
@@ -149,10 +187,13 @@
     var cleared0 = BF.Save.clearedCount(this.game);
     var unlockedTo = BF.Save.unlockedOf(this.game);
 
-    D.text(ctx, this.meta.title, 20, this.top + 20, { size: 22, weight: '700', align: 'left' });
+    // 标题/副标题必须让开左上角的返回按钮（x:12~52），否则会压在按钮上。
+    // 早先左对齐画在 x:20，正好盖住返回箭头 —— 缩成几何断言前肉眼看截图才发现。
+    var titleX = this.back.x + this.back.w + 12;   // 52 + 12 = 64
+    D.text(ctx, this.meta.title, titleX, this.top + 20, { size: 22, weight: '700', align: 'left' });
     D.text(ctx, '已通关 ' + cleared0 + ' / ' + this.total +
       '　·　★ ' + BF.Save.totalStars(this.game),
-      20, this.top + 46, { size: 12, color: T.textSub, align: 'left' });
+      titleX, this.top + 46, { size: 12, color: T.textSub, align: 'left' });
 
     // 进度条
     var pct = cleared0 / this.total;
@@ -160,6 +201,24 @@
     D.fillRound(ctx, barX, barY, barW, barH, 3, 'rgba(23,26,31,0.08)');
     if (pct > 0) {
       D.fillRound(ctx, barX, barY, Math.max(6, barW * pct), barH, 3, T.accent);
+    }
+
+    // 难度快捷入口（照片拼图：网格尺寸；找不同：不同处数）
+    if (this.hasDiff && this.chips) {
+      D.text(ctx, '难度', 20, this.chipLabelY, { size: 11.5, color: T.textSub, weight: '600', align: 'left' });
+      for (var ci = 0; ci < this.chips.length; ci++) {
+        var c = this.chips[ci];
+        var cpressed = this.press && this.press.kind === 'diff' && this.press.idx === ci;
+        D.fillRound(ctx, c.x, c.y, c.w, c.h, 15, cpressed ? T.accent : '#FFFFFF');
+        if (!cpressed) {
+          D.roundRect(ctx, c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1, 15);
+          ctx.strokeStyle = T.panelEdge; ctx.lineWidth = 1; ctx.stroke();
+        }
+        // 标签由各游戏自己给（照片是 4×4，找不同是 "5 处"），不给就按网格尺寸兜底
+        var label = this.meta.chipLabel ? this.meta.chipLabel(c.size) : (c.size + '×' + c.size);
+        D.text(ctx, label, c.x + c.w / 2, c.y + c.h / 2,
+          { size: 12.5, color: cpressed ? '#FFFFFF' : T.text, weight: '700', align: 'center' });
+      }
     }
 
     // 列表（裁剪）

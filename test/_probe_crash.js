@@ -74,10 +74,32 @@ function runScreen(W, H, dpr, label) {
   load('js/core/save.js');
   load('js/game/generator.js');
   load('js/game/logic.js');
+  load('js/game/photoAssets.js');
+  load('js/game/photo.js');
+  load('js/game/diffAssets.js');
+  load('js/game/diff.js');
+  load('js/game/bottle.js');
+  load('js/game/cipher.js');
+  load('js/game/rush.js');
+  load('js/game/blocks.js');
+  load('js/game/sudoku.js');
+  load('js/game/mine.js');
   load('js/game/model.js');
   load('js/scenes/home.js');
   load('js/scenes/levels.js');
+  load('js/scenes/diffpick.js');
+  load('js/scenes/ruletip.js');
+  BF.RuleTip.on = false;   // harness 默认关规则弹框（输入会被拦走）
   load('js/scenes/play.js');
+  load('js/scenes/diff.js');
+  load('js/scenes/bottle.js');
+  load('js/scenes/cipher.js');
+  load('js/scenes/rush.js');
+  load('js/scenes/blocks.js');
+  load('js/scenes/sudoku.js');
+  load('js/scenes/mine.js');
+  load('js/game/picross.js');
+  load('js/scenes/picross.js');
   load('js/app.js');
 
   const App = sandbox.BF.App;
@@ -115,6 +137,50 @@ function runScreen(W, H, dpr, label) {
   }
 
   frames(3);
+
+  /* --- 首页卡片排版：每张卡的文案必须落在卡片内 ---
+     窄屏/矮屏最容易压塌：iPhone 8（375×667）上 11 张卡把高度压到 36px，
+     而标题固定 17px → 文字顶出卡片（真机截图放大后才发现）。
+     现在字号随卡片高度缩放 + 装不下就整页可滚动，这里逐设备守住。 */
+  {
+    const hs = App.current;
+    if (!hs || !hs.cards || !hs.cardTextLayout) { errs.push(label + ' 首页没起来'); }
+    else {
+      if (hs.minScroll > 0) { errs.push(label + ' 首页 minScroll 为正'); }
+      const need = hs.contentH > hs.viewH + 0.5;
+      if (need && hs.minScroll >= 0) { errs.push(label + ' 首页一屏装不下却没开滚动'); }
+      if (!need && hs.minScroll !== 0) { errs.push(label + ' 首页装得下却开了滚动'); }
+      for (let i = 0; i < hs.cards.length; i++) {
+        const c = hs.cards[i];
+        const g = hs.cardTextLayout({ x: c.x, y: c.y, w: c.w, h: c.h });
+        if (g.top < c.y - 0.6 || g.top + g.blockH > c.y + c.h + 0.6) {
+          errs.push(label + ' 首页卡片「' + c.title + '」文案溢出卡片');
+        }
+        if (hs.estTextWidth(c.title, g.titleSize) > g.textMax) {
+          errs.push(label + ' 首页卡片「' + c.title + '」标题超宽');
+        }
+        if (hs.estTextWidth(c.sub, g.subSize) > g.textMax) {
+          errs.push(label + ' 首页卡片「' + c.title + '」副标题超宽');
+        }
+        if (g.isz < 12) {
+          errs.push(label + ' 首页卡片「' + c.title + '」图标被压成 ' + g.isz.toFixed(1) + 'px');
+        }
+        if (c.x < 0 || c.x + c.w > W + 0.5) {
+          errs.push(label + ' 首页卡片「' + c.title + '」横向出屏');
+        }
+      }
+      if (hs.minScroll < 0) {
+        const s0 = hs.scroll;
+        drag(W / 2, H * 0.72, W / 2, H * 0.28);
+        frames(4);
+        if (!(hs.scroll < s0)) { errs.push(label + ' 首页可滚动却拖不动（scroll=' + hs.scroll + '）'); }
+        if (hs.scroll < hs.minScroll - 0.5) { errs.push(label + ' 首页拖动越界'); }
+        hs.scroll = 0; hs.vel = 0; hs.dragging = false; hs.moved = 0; hs.press = null;
+        frames(1);
+      }
+    }
+  }
+
   // 首页 → 方块拼图 → 逐关玩到第 8 关，每关都走：通关 → 重玩 → 再通关 → 下一关
   App.go('levels', { game: 'block' });
   frames(3);
@@ -156,6 +222,241 @@ function runScreen(W, H, dpr, label) {
     if (lg.model.filled() !== 6) { errs.push(label + ' 逻辑拼图「重玩」后固定块丢失: ' + lg.model.filled()); }
   }
   frames(10);
+
+  /* --- 图片找不同也走一遍（独立场景、无棋盘分支，布局在窄屏最容易溢出） --- */
+  App.go('levels', { game: 'diff' });
+  frames(3);
+  App.go('diff', { level: 1, game: 'diff' });
+  frames(6);
+  const df = App.current;
+  if (!df || !df.rectA) { errs.push(label + ' 找不同场景没起来'); }
+  else {
+    // 两图必须完整落在屏幕内（窄屏最容易溢出）
+    if (df.rectA.y < 0) { errs.push(label + ' 找不同 A 图溢出顶部: y=' + df.rectA.y); }
+    if (df.rectB.y + df.rectB.h > H) { errs.push(label + ' 找不同 B 图溢出底部: ' + (df.rectB.y + df.rectB.h) + '/' + H); }
+    for (let bi = 0; bi < df.btns.length; bi++) {
+      const b = df.btns[bi];
+      if (b.y + b.h > H) { errs.push(label + ' 找不同底部按钮溢出: ' + (b.y + b.h) + '/' + H); }
+    }
+    // 点完所有差异 → 过关 → 重玩
+    const dArr = df.puzzle.diffs;
+    for (let di = 0; di < dArr.length; di++) {
+      const d = dArr[di];
+      tap(df.rectB.x + (d.u + d.uw / 2) * df.rectB.w, df.rectB.y + (d.v + d.vh / 2) * df.rectB.h);
+    }
+    frames(20);
+    if (!df.win) { errs.push(label + ' 找不同第1关没通关'); }
+    else {
+      const ob4 = df.overlayLayout();
+      tap(ob4.again.x + ob4.again.w / 2, ob4.again.y + ob4.again.h / 2);
+      frames(6);
+      if (df.win) { errs.push(label + ' 找不同「重玩」无效'); }
+      if (df.foundCount !== 0) { errs.push(label + ' 找不同「重玩」后进度没清空: ' + df.foundCount); }
+    }
+    // 提示 / 重来 两个按钮也点一遍
+    ['hint', 'reset'].forEach(function (k) { df.doAction(k); frames(2); });
+    frames(4);
+  }
+
+  /* --- 「先选难度，再进游戏」首屏（rush / diff / blocks 共用 BF.DiffPick） ---
+     窄屏最容易在这里出事：找不同有 6 张档卡，卡片一溢出就会压住「查看全部关卡」。
+     这里逐款验几何 + 点一张档卡能真进游戏。 */
+  [['rush', 4], ['diff', 6], ['blocks', 4]].forEach(function (pg) {
+    App.go(pg[0], { pickDiff: true, game: pg[0] });
+    frames(4);
+    const pk = App.current;
+    if (!pk || pk.pickDiff !== true) { errs.push(label + ' ' + pg[0] + ' 难度首屏没起来'); return; }
+    if (!pk.pickCards || pk.pickCards.length !== pg[1]) {
+      errs.push(label + ' ' + pg[0] + ' 难度首屏应有 ' + pg[1] + ' 张档卡，实际 ' +
+        (pk.pickCards ? pk.pickCards.length : 0));
+      return;
+    }
+    let prevBottom = -1;
+    for (let ci = 0; ci < pk.pickCards.length; ci++) {
+      const c = pk.pickCards[ci];
+      if (c.y < prevBottom - 0.5) { errs.push(label + ' ' + pg[0] + ' 档卡重叠 @' + ci); }
+      if (c.x < 0 || c.x + c.w > W + 0.5) { errs.push(label + ' ' + pg[0] + ' 档卡横向出屏 @' + ci); }
+      if (c.y + c.h > pk.pickAll.y + 0.5) {
+        errs.push(label + ' ' + pg[0] + ' 档卡压住「查看全部关卡」@' + ci +
+          ' (' + (c.y + c.h) + ' > ' + pk.pickAll.y + ')');
+      }
+      prevBottom = c.y + c.h;
+    }
+    if (pk.pickAll.y + pk.pickAll.h > H) {
+      errs.push(label + ' ' + pg[0] + ' 「查看全部关卡」溢出底部');
+    }
+    // 点最后一张档卡 → 必须离开首屏并真正加载题目
+    const last = pk.pickCards[pk.pickCards.length - 1];
+    tap(last.x + last.w / 2, last.y + last.h / 2);
+    frames(6);
+    const after = App.current;
+    if (after.pickDiff !== false) { errs.push(label + ' ' + pg[0] + ' 点档卡没离开难度首屏'); }
+    if (!after.puzzle) { errs.push(label + ' ' + pg[0] + ' 点档卡后题目没加载'); }
+    frames(4);
+  });
+
+  /* --- 扫雷也走一遍（独立场景、运行时生成棋盘，窄屏布局最易溢出） --- */
+  App.go('mine', { pickDiff: true, game: 'mine' });
+  frames(4);
+  const mk = App.current;
+  if (!mk || mk.pickDiff !== true) { errs.push(label + ' 扫雷难度首屏没起来'); }
+  else if (mk.pickCards && mk.pickCards.length !== 4) {
+    errs.push(label + ' 扫雷难度首屏应有 4 张档卡，实际 ' + (mk.pickCards ? mk.pickCards.length : 0));
+  } else {
+    for (let ci = 0; ci < mk.pickCards.length; ci++) {
+      const c = mk.pickCards[ci];
+      if (c.y < -0.5) { errs.push(label + ' 扫雷档卡溢出顶部 @' + ci); }
+      if (c.x < 0 || c.x + c.w > W + 0.5) { errs.push(label + ' 扫雷档卡横向出屏 @' + ci); }
+      if (c.y + c.h > mk.pickAll.y + 0.5) { errs.push(label + ' 扫雷档卡压住入口 @' + ci); }
+    }
+  }
+  App.go('mine', { level: 1, game: 'mine' });
+  frames(4);
+  const mn = App.current;
+  if (!mn || !mn.puzzle) { errs.push(label + ' 扫雷第1关没起来'); }
+  else {
+    const cxm = mn.boardX + mn.boardW / 2, cym = mn.boardY + mn.boardW / 2;
+    tap(cxm, cym);                       // 首点翻格（运行时会生成棋盘）
+    frames(6);
+    if (!mn.started) { errs.push(label + ' 扫雷首点没生成棋盘'); }
+    const mb = mn.actBtns.find(function (b) { return b.key === 'mark'; });
+    tap(mb.x + mb.w / 2, mb.y + mb.h / 2);   // 标记模式
+    frames(2);
+    if (!mn.markMode) { errs.push(label + ' 扫雷标记模式没开'); }
+    mn.doHint();                        // 提示推一格（保证不崩）
+    frames(4);
+    let boom = -1;
+    for (let zi = 0; zi < mn.N; zi++) { if (mn.mines[zi]) { boom = zi; break; } }
+    mn.revealAt(boom);                  // 触发踩雷失败路径
+    frames(4);
+    if (!mn.gameOver) { errs.push(label + ' 扫雷翻雷没触发失败'); }
+  }
+  frames(6);
+
+  /* --- 数织也走一遍（线索槽 + 调色板 + 15×15 专家档，窄屏布局最易溢出） --- */
+  App.go('picross', { pickDiff: true, game: 'picross' });
+  frames(4);
+  const pk = App.current;
+  if (!pk || pk.pickDiff !== true) { errs.push(label + ' 数织难度首屏没起来'); }
+  else if (pk.pickCards && pk.pickCards.length !== 4) {
+    errs.push(label + ' 数织难度首屏应有 4 张档卡，实际 ' + (pk.pickCards ? pk.pickCards.length : 0));
+  } else {
+    for (let ci = 0; ci < pk.pickCards.length; ci++) {
+      const c = pk.pickCards[ci];
+      if (c.y < -0.5) { errs.push(label + ' 数织档卡溢出顶部 @' + ci); }
+      if (c.x < 0 || c.x + c.w > W + 0.5) { errs.push(label + ' 数织档卡横向出屏 @' + ci); }
+      if (c.y + c.h > pk.pickAll.y + 0.5) { errs.push(label + ' 数织档卡压住入口 @' + ci); }
+    }
+  }
+  // 专家档 15×15：格子最小，线索槽最宽，是最容易挤爆的一档
+  App.go('picross', { level: 31, game: 'picross' });
+  frames(4);
+  const pc = App.current;
+  if (!pc || !pc.puzzle) { errs.push(label + ' 数织第31关没起来'); }
+  else {
+    if (pc.cell < 14) { errs.push(label + ' 数织专家档格子过小: ' + pc.cell); }
+    if (pc.gridX < 0 || pc.gridX + pc.gridW > W + 0.5) {
+      errs.push(label + ' 数织棋盘横向出屏: x=' + pc.gridX + ' w=' + pc.gridW + ' W=' + W);
+    }
+    if (pc.gridY + pc.gridW > pc.palY + 0.5) {
+      errs.push(label + ' 数织棋盘压住调色板: 底=' + (pc.gridY + pc.gridW) + ' 调色板顶=' + pc.palY);
+    }
+    if (pc.boardX < 0 || pc.boardX + pc.boardW > W + 0.5) {
+      errs.push(label + ' 数织底板横向出屏');
+    }
+    // 调色板不能出屏
+    const items = pc.palItems();
+    for (let ii = 0; ii < items.length; ii++) {
+      if (items[ii].x < 0 || items[ii].x + 32 > W + 0.5) {
+        errs.push(label + ' 数织调色板第 ' + ii + ' 项出屏');
+      }
+    }
+    // 真实点一格 → 开始计时
+    const cx0 = pc.gridX + pc.cell / 2, cy0 = pc.gridY + pc.cell / 2;
+    tap(cx0, cy0);
+    frames(3);
+    if (!pc.started) { errs.push(label + ' 数织点格没开始计时'); }
+    // 换工具：橡皮 / 标空，再长按一次（走长按分支）
+    pc.sel = -1;
+    tap(cx0 + pc.cell, cy0);
+    frames(2);
+    pc.sel = -2;
+    tap(cx0 + pc.cell * 2, cy0);
+    frames(2);
+    input.down(cx0 + pc.cell * 3, cy0);
+    frames(30);          // 超过 LONG_PRESS_MS
+    input.up(cx0 + pc.cell * 3, cy0);
+    frames(2);
+    // 提示（含"提示完直接通关"的边界：这里只点一次，不会刚好通关）
+    pc.doHint();
+    frames(4);
+    if (pc.hintsLeft !== 2) { errs.push(label + ' 数织提示没消耗次数'); }
+    // 直接摆成通关态，走结算弹窗 + 下一关按钮。
+    // ⚠️ 必须先把之前点的格子清掉：上面在 (0,0) 填过色，若那格在解里是空位，
+    //    残留的填色会让 isSolved() 永远为假（"填错不通关"由 smoke 9f-2 覆盖）。
+    for (let zi = 0; zi < pc.cells.length; zi++) {
+      pc.st[zi] = (pc.cells[zi] >= 0) ? pc.cells[zi] : -1;
+    }
+    pc.afterFill();
+    frames(4);
+    if (!pc.win) { errs.push(label + ' 数织填满没触发通关'); }
+    const obp = pc.overlayLayout();
+    if (obp.card.x < 0 || obp.card.x + obp.card.w > W + 0.5) {
+      errs.push(label + ' 数织结算弹窗横向出屏');
+    }
+    tap(obp.next.x + obp.next.w / 2, obp.next.y + obp.next.h / 2, 3);
+    frames(4);
+  }
+  frames(6);
+
+  /* --- 「玩法说明」弹框（BF.RuleTip）：窄屏下卡片/按钮/复选框不出屏、不压调色板 --- */
+  BF.RuleTip.on = true;          // 本探针块专门测弹框，临时打开总开关
+  App.go('picross', { level: 31, game: 'picross' });
+  frames(4);
+  const rt = App.current;
+  if (!rt || !rt.showRule) { errs.push(label + ' 数织专家档首进没弹规则说明'); }
+  else {
+    const rc = rt.ruleCard, ro = rt.ruleOk, rk = rt.ruleCheck;
+    if (rc.x < 0 || rc.x + rc.w > W + 0.5) { errs.push(label + ' 规则弹框横向出屏'); }
+    if (rc.y < 0 || rc.y + rc.h > H + 0.5) { errs.push(label + ' 规则弹框纵向出屏'); }
+    if (ro.x < rc.x || ro.x + ro.w > rc.x + rc.w) { errs.push(label + ' 规则弹框按钮超出卡片'); }
+    if (rk.y + rk.h > ro.y) { errs.push(label + ' 规则弹框复选框压住按钮'); }
+    if (rk.x < rc.x || rk.x + rk.w > rc.x + rc.w) { errs.push(label + ' 规则弹框复选框超出卡片'); }
+    // 顶部动画演示块（数织专属）必须完整落在卡片内、且在规则文字上方
+    const dm = rt.ruleDemo;
+    if (!dm) { errs.push(label + ' 数织弹框缺少动画演示块 ruleDemo'); }
+    else {
+      if (dm.x < rc.x || dm.x + dm.w > rc.x + rc.w) { errs.push(label + ' 演示块横向超出卡片'); }
+      if (dm.y < rc.y || dm.y + dm.h > rc.y + rc.h) { errs.push(label + ' 演示块纵向超出卡片'); }
+      if (dm.y + dm.h > rt.ruleRulesTop + 0.5) { errs.push(label + ' 演示块压住规则文字'); }
+    }
+    // 「?」按钮不能压返回 / 标题（picross 标题左对齐，? 在提示按钮左边）
+    const qbtn = BF.RuleTip.btn(rt);
+    if (qbtn.x + qbtn.w > rt.hintBtn.x) { errs.push(label + ' 「?」按钮压住提示按钮'); }
+    if (qbtn.x < rt.back.x + rt.back.w) { errs.push(label + ' 「?」按钮压住返回按钮'); }
+    // 点遮罩不关；点「开始游戏」才关，关后能正常点格
+    tap(4, H - 4);
+    frames(2);
+    if (!rt.showRule) { errs.push(label + ' 点遮罩竟然关掉了规则弹框'); }
+    tap(ro.x + ro.w / 2, ro.y + ro.h / 2);
+    frames(3);
+    if (rt.showRule) { errs.push(label + ' 点开始游戏没关掉规则弹框'); }
+    const qx = rt.gridX + rt.cell / 2, qy = rt.gridY + rt.cell / 2;
+    tap(qx, qy);
+    frames(3);
+    if (!rt.started) { errs.push(label + ' 关掉弹框后点格没开始计时'); }
+    // 勾了「不再提示」再进同关：不应再弹
+    BF.RuleTip.enter(rt, { force: true });
+    frames(2);
+    tap(rt.ruleCheck.x + rt.ruleCheck.w / 2, rt.ruleCheck.y + rt.ruleCheck.h / 2);
+    tap(rt.ruleOk.x + rt.ruleOk.w / 2, rt.ruleOk.y + rt.ruleOk.h / 2);
+    frames(3);
+    App.go('picross', { level: 31, game: 'picross' });
+    frames(4);
+    if (App.current.showRule) { errs.push(label + ' 勾过不再提示后仍弹规则弹框'); }
+  }
+  BF.RuleTip.on = false;         // 还原，避免影响后面的探针
+  frames(6);
 
   /* --- 错误面板可见性：故意让 render 抛错，文字必须真的画出来 --- */
   capturedTexts = [];
@@ -233,8 +534,24 @@ function runResilience(W, H, dpr) {
     vibrate: function () {}, bindPointer: function () {}
   };
   load('js/core/save.js'); load('js/game/generator.js'); load('js/game/logic.js');
+  load('js/game/photoAssets.js'); load('js/game/photo.js');
+  load('js/game/diffAssets.js'); load('js/game/diff.js');
+  load('js/game/bottle.js'); load('js/game/cipher.js');
+  load('js/game/rush.js'); load('js/game/blocks.js');
+  load('js/game/sudoku.js');
+  load('js/game/mine.js');
   load('js/game/model.js'); load('js/scenes/home.js'); load('js/scenes/levels.js');
-  load('js/scenes/play.js'); load('js/app.js');
+  load('js/scenes/diffpick.js');
+  load('js/scenes/ruletip.js');
+  BF.RuleTip.on = false;   // harness 默认关规则弹框（输入会被拦走）
+  load('js/scenes/play.js'); load('js/scenes/diff.js');
+  load('js/scenes/bottle.js'); load('js/scenes/cipher.js');
+  load('js/scenes/rush.js'); load('js/scenes/blocks.js');
+  load('js/scenes/sudoku.js');
+  load('js/scenes/mine.js');
+  load('js/game/picross.js');
+  load('js/scenes/picross.js');
+  load('js/app.js');
 
   const App = sandbox.BF.App;
   function pump(n) {

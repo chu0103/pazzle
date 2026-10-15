@@ -331,6 +331,16 @@
   var games = BF.games || (BF.games = {});
   games.logic = {
     id: 'logic',
+    // 「玩法说明」弹框（BF.RuleTip）：每次进这款游戏的第一个关卡时弹一次，
+    // 玩家勾选「不再提示」后写入 Save.extra(id,'noRule')，之后不再弹。
+    rules: {
+      sub: '3 块固定 + 8 块填空',
+      lines: [
+        '已有 3 块固定不动',
+        '把剩下的方块拖到正确空位',
+        '填满即过关，可撤销 / 重置 / 提示',
+      ]
+    },
     title: '逻辑拼图',
     sub: '3 块固定 + 8 块填空',
     skin: 'logic',

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>dl</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; }
+  #stage { position: absolute; left: 0; top: 0; width: 390px; height: 844px; overflow: hidden; background: #eff1f4; }
+  #err { display: none; position: absolute; left: 0; right: 0; bottom: 0; max-height: 40%; overflow: auto;
+         margin: 0; padding: 10px; background: rgba(201,70,63,.95); color: #fff;
+         font: 11px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; z-index: 9; }
+</style>
+</head>
+<body>
+<div id="stage"><pre id="err" style="display:none"></pre></div>
+
+<script>
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent += (e.message || 'error') + '\n' + (e.filename || '').split('/').pop() + ':' + e.lineno + '\n';
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var el = document.getElementById('err');
+    el.style.display = 'block';
+    el.textContent += 'REJECT: ' + (e.reason && e.reason.message ? e.reason.message : e.reason) + '\n';
+  });
+</script>
+
+<script src="../js/core/ns.js"></script>
+<script src="../js/core/palette.js"></script>
+<script src="../js/core/draw.js"></script>
+<script src="../js/platform/browser.js"></script>
+<script src="../js/core/save.js"></script>
+<script src="../js/game/generator.js"></script>
+<script src="../js/game/logic.js"></script>
+<script src="../js/game/photoAssets.js"></script>
+<script src="../js/game/photo.js"></script>
+<script src="../js/game/diffAssets.js"></script>
+<script src="../js/game/diff.js"></script>
+<script src="../js/game/bottle.js"></script>
+<script src="../js/game/cipher.js"></script>
+<script src="../js/game/rush.js"></script>
+<script src="../js/game/blocks.js"></script>
+<script src="../js/game/sudoku.js"></script>
+<script src="../js/game/mine.js"></script>
+<script src="../js/game/picross.js"></script>
+<script src="../js/game/model.js"></script>
+<script src="../js/scenes/home.js"></script>
+<script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/diffpick.js"></script>
+<script src="../js/scenes/ruletip.js"></script>
+<script src="../js/scenes/play.js"></script>
+<script src="../js/scenes/diff.js"></script>
+<script src="../js/scenes/bottle.js"></script>
+<script src="../js/scenes/cipher.js"></script>
+<script src="../js/scenes/rush.js"></script>
+<script src="../js/scenes/blocks.js"></script>
+<script src="../js/scenes/sudoku.js"></script>
+<script src="../js/scenes/mine.js"></script>
+<script src="../js/scenes/picross.js"></script>
+<script src="../js/app.js"></script>
+<script>
+  var q = {}; (location.search || '').replace(/^\?/, '').split('&').forEach(function (kv) {
+    var p = kv.split('='); if (p[0]) { q[p[0]] = p[1]; }
+  });
+  if (BF.Photos) { BF.Photos.base = '../'; }
+  if (BF.Diffs) { BF.Diffs.base = '../'; }
+
+  var diag = document.getElementById('err');
+  function pump(frames) {
+    // 手动驱动 update+render 到稳态：无头 Edge 的 rAF 时序不稳，
+    // 靠它保证截图时所有动画（ruleAnim/fadeIn…）已收敛，前后可比。
+    for (var i = 0; i < (frames || 150); i++) {
+      var c = BF.App.current;
+      if (c && c.update) { c.update(16); }
+      if (c && c.render) { c.render(BF.platform.ctx); }
+    }
+  }
+  function nav() {
+    var game = q.game || 'sudoku';
+    var level = parseInt(q.level || '1', 10);
+    var pick = q.pickDiff === '1';
+    try {
+      if (q.daily === '1') { BF.App.go('play', { daily: true }); }
+      else { BF.App.go(game, pick ? { pickDiff: true, game: game } : { level: level }); }
+    } catch (e) {
+      diag.style.display = 'block';
+      diag.textContent += 'NAV ERROR ' + game + ': ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n') + '\n';
+      return;
+    }
+    // 进关后自动关掉「玩法说明」弹框露出棋盘（board 模式且要求 close=1）
+    if (!pick && q.close === '1') {
+      var c0 = BF.App.current;
+      if (c0 && c0.showRule && c0.ruleOk) { try { BF.RuleTip.close(c0); } catch (e2) {} }
+    }
+    pump(150);
+    var c = BF.App.current || {};
+    var card = c.ruleCard ? ('[' + [c.ruleCard.x, c.ruleCard.y, c.ruleCard.w, c.ruleCard.h].map(Math.round).join(',') + ']') : 'null';
+    diag.style.display = 'block';
+    diag.textContent = 'DIAG showRule=' + !!c.showRule +
+      ' ruleAnim=' + (c.ruleAnim == null ? 'null' : c.ruleAnim.toFixed(3)) +
+      ' fadeIn=' + (c.fadeIn == null ? 'null' : c.fadeIn.toFixed(3)) +
+      ' card=' + card + '\n';
+  }
+  setTimeout(nav, 300);
+</script>
+</body>
+</html>

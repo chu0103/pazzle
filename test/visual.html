@@ -16,7 +16,15 @@
 </style>
 </head>
 <body>
-<h1>方块拼图 · 视觉快照（由真实 Canvas 导出，非示意图）</h1>
+<h1>益智闯关 · 视觉快照（方块 / 逻辑 / 照片 / 找不同 四款，由真实 Canvas 导出，非示意图）</h1>
+<p style="margin:0 0 12px;color:#8b9199;font-size:11.5px">
+  照片拼图 / 图片找不同那几页含真实图片：<b>直接双击用 file:// 打开时</b>，画过图片的画布会被判为跨源污染而无法导出，
+  因此本页在 file:// 下会自动<b>禁用图片加载</b>（这两款显示色块兜底，方块/逻辑快照照常正常）。
+  要看含真实图片的快照，请用本地 HTTP 打开：在项目根目录执行
+  <code style="background:#eef0f4;padding:1px 5px;border-radius:5px">python -m http.server 8080</code>
+  然后访问 <code style="background:#eef0f4;padding:1px 5px;border-radius:5px">http://localhost:8080/test/visual.html</code>。
+  单张细看用 <code style="background:#eef0f4;padding:1px 5px;border-radius:5px">?only=NN&w=390</code>（NN 见每张下方的编号）。
+</p>
 <div id="err"></div>
 <div id="row"></div>
 
@@ -34,10 +42,31 @@
 <script src="../js/core/save.js"></script>
 <script src="../js/game/generator.js"></script>
 <script src="../js/game/logic.js"></script>
+<script src="../js/game/photoAssets.js"></script>
+<script src="../js/game/photo.js"></script>
+<script src="../js/game/diffAssets.js"></script>
+<script src="../js/game/diff.js"></script>
+<script src="../js/game/bottle.js"></script>
+<script src="../js/game/cipher.js"></script>
 <script src="../js/game/model.js"></script>
 <script src="../js/scenes/home.js"></script>
 <script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/diffpick.js"></script>
+<script src="../js/scenes/ruletip.js"></script>
 <script src="../js/scenes/play.js"></script>
+<script src="../js/scenes/diff.js"></script>
+<script src="../js/scenes/bottle.js"></script>
+<script src="../js/scenes/cipher.js"></script>
+<script src="../js/game/rush.js"></script>
+<script src="../js/scenes/rush.js"></script>
+<script src="../js/game/blocks.js"></script>
+<script src="../js/game/sudoku.js"></script>
+<script src="../js/game/mine.js"></script>
+<script src="../js/game/picross.js"></script>
+<script src="../js/scenes/blocks.js"></script>
+<script src="../js/scenes/sudoku.js"></script>
+<script src="../js/scenes/mine.js"></script>
+<script src="../js/scenes/picross.js"></script>
 <script src="../js/app.js"></script>
 <script>
 (function () {
@@ -96,8 +125,39 @@
         'DEBUG 对齐检查: 网格 ' + n + 'x' + n + ' / cell=' + L.cell.toFixed(2) +
         ' / inner=' + Math.round(L.inner.w) + 'px / 在格内=' + inside + ' 偏移=' + outside + '\n';
     }
+    // ?dbg=1 → 把当前场景的关键几何打进错误面板，用来核对"某块内容没画出来"这类布局问题
+    if (q.dbg && sc) {
+      var dl = [];
+      if (sc.top !== undefined) { dl.push('top=' + sc.top); }
+      if (sc.listTop !== undefined) {
+        dl.push('listTop=' + sc.listTop, 'listBottom=' + sc.listBottom,
+                'scroll=' + sc.scroll, 'viewH=' + sc.viewH,
+                'chips=' + (sc.chips ? sc.chips.length : 'null'));
+      }
+      if (sc.rectA) { dl.push('rectA=' + JSON.stringify(sc.rectA)); }
+      if (sc.rectB) { dl.push('rectB=' + JSON.stringify(sc.rectB)); }
+      if (sc.btns) { dl.push('btns[0].y=' + sc.btns[0].y); }
+      if (sc.cell !== undefined && sc.boardX !== undefined) {
+        dl.push('sudoku: cell=' + sc.cell, 'boardX=' + sc.boardX, 'boardY=' + sc.boardY,
+                'boardW=' + sc.boardW, 'W=' + BF.platform.width, 'H=' + BF.platform.height);
+      }
+      document.getElementById('err').textContent += 'DEBUG ' + caption + ' :: ' + dl.join(' ') + '\n';
+    }
     if (post) { post(sc); }
-    var url = BF.platform.canvas.toDataURL('image/png');
+    var url;
+    try {
+      url = BF.platform.canvas.toDataURL('image/png');
+    } catch (e) {
+      // 画过图片的画布在 file:// 下算"跨源污染"，toDataURL 会抛 SecurityError。
+      // 这不是游戏代码的问题（小游戏里根本不导出画布），只是快照页的取图方式受限。
+      // 挂一条说明继续跑后面的场景，别让整页卡在第一个照片场景上。
+      var figW = document.createElement('figure');
+      var capW = document.createElement('figcaption');
+      capW.textContent = caption + '  ⚠ 无法导出（file:// 下画布被图片污染）';
+      figW.appendChild(capW);
+      row.appendChild(figW);
+      return;
+    }
     var fig = document.createElement('figure');
     var img = document.createElement('img');
     img.src = url;
@@ -120,6 +180,69 @@
       p.scale = 1; p.tScale = 1;
     }
     sc.layoutTray();
+  }
+
+  /** 用真实指针事件把移车出库一关**最优**拖到通关（抓"驶出动画 / 结算弹窗"用）。
+   *  这里自带一个「滑动 BFS」（一次连续滑动 = 1 步，与游戏 opt 口径一致），
+   *  得到绝对目标序列后经 onDown/onMove/onUp 提交 —— 这样快照才是标准的 3 星结算。 */
+  function playRush(sc) {
+    var size = sc.size;
+    var cars = sc.cars.map(function (c) { return { horiz: c.horiz, len: c.len, x: c.x, y: c.y }; });
+    // 当前局面下第 i 车沿轴的可达滑动区间（横竖混合时障碍车在被挡轴只占 1 格）
+    function range(cur, i) {
+      var c = cars[i], Lc = c.len, cpos = cur[i];
+      var cfix = c.horiz ? c.y : c.x, min = 0, max = size - Lc;
+      for (var j = 0; j < cars.length; j++) {
+        if (j === i) { continue; }
+        var o = cars[j], opos = cur[j], ofix = o.horiz ? o.y : o.x;
+        if (c.horiz) {
+          var inRow = o.horiz ? (ofix === cfix) : (opos <= cfix && cfix <= opos + o.len - 1);
+          if (!inRow) { continue; }
+          var oc = o.horiz ? opos : ofix, ocs = o.horiz ? o.len : 1;
+          if (oc + ocs - 1 < cpos) { min = Math.max(min, oc + ocs); }
+          else if (oc > cpos + Lc - 1) { max = Math.min(max, oc - Lc); }
+        } else {
+          var inCol = o.horiz ? (opos <= cfix && cfix <= opos + o.len - 1) : (ofix === cfix);
+          if (!inCol) { continue; }
+          var oR = o.horiz ? ofix : opos, oRows = o.horiz ? 1 : o.len;
+          if (oR + oRows - 1 < cpos) { min = Math.max(min, oR + oRows); }
+          else if (oR > cpos + Lc - 1) { max = Math.min(max, oR - Lc); }
+        }
+      }
+      return { min: min, max: max };
+    }
+    var start = sc.cars.map(function (c) { return c.horiz ? c.x : c.y; });
+    var q = [start], head = 0, dist = {}, prev = {};
+    dist[start.join(',')] = 0;
+    var path = null;
+    while (head < q.length && !path) {
+      var cur = q[head++], key = cur.join(','), d = dist[key];
+      if (cur[0] === size - 2) {
+        path = []; var k = key;
+        while (prev[k]) { path.push(prev[k].mv); k = prev[k].pk; }
+        path.reverse(); break;
+      }
+      for (var i = 0; i < cars.length; i++) {
+        var rg = range(cur, i);
+        for (var to = rg.min; to <= rg.max; to++) {
+          if (to === cur[i]) { continue; }
+          var np = cur.slice(); np[i] = to; var nk = np.join(',');
+          if (dist[nk] !== undefined) { continue; }
+          dist[nk] = d + 1; prev[nk] = { pk: key, mv: { car: i, to: to } }; q.push(np);
+        }
+      }
+    }
+    if (!path) { return; }
+    for (var s = 0; s < path.length; s++) {
+      var mv = path[s], car = sc.cars[mv.car];
+      var r0 = sc.carRect(car);
+      var cx0 = r0.x + r0.w / 2, cy0 = r0.y + r0.h / 2;
+      var r1 = sc.carRect(car, mv.to);
+      var cx1 = r1.x + r1.w / 2, cy1 = r1.y + r1.h / 2;
+      sc.onDown(cx0, cy0);
+      if (car.horiz) { sc.onMove(cx1, cy0); } else { sc.onMove(cx0, cy1); }
+      sc.onUp(cx1, cy1);
+    }
   }
 
   /** 模拟一次拖拽（按下托盘的块 → 移到目标格） */
@@ -266,15 +389,666 @@
        这是修复后的完整画面，用来对照"修好之后应该长什么样"。 */
     ['⑳ 方块拼图 · 第 7 关完整画面（对照反馈截图）', function () {
       BF.App.go('play', { level: 7, game: 'block' });
+    }],
+
+    /* ---------------- 游戏 3「照片拼图」 ---------------- */
+    ['㉑ 照片拼图 · 关卡选择（顶部「难度」快捷条 3×3~8×8 + 60 关网格）', function () {
+      var b = BF.Save.bucket('photo');
+      b.unlocked = 21;
+      b.cleared = { '1': 3, '2': 3, '3': 2, '4': 3, '5': 1, '6': 3, '7': 2, '8': 3, '9': 3, '10': 3, '11': 2 };
+      BF.App.go('levels', { game: 'photo' });
+    }, function (sc) {
+      sc.scroll = 0; sc.vel = 0; sc.render(BF.platform.ctx);   // 见 ㉙ 的说明
+    }],
+    ['㉒ 照片拼图 · 第 1 关初始（棋盘铺淡参照图 + 网格 + 托盘九碎片）', function () {
+      // 真机图片是异步加载的，settle 的 45 帧足够本地小图就位；
+      // 就位前会退化成主色块（不白屏），这里截图时应当是原图。
+      BF.App.go('play', { level: 1, game: 'photo' });
+    }],
+    ['㉓ 照片拼图 · 拖拽中（绿框合法落点）', function () {
+      BF.App.go('play', { level: 1, game: 'photo' });
+      var sc = BF.App.scenes.play;
+      var p = sc.model.trayPieces()[0];
+      startDrag(sc, p, 0, 0);
+      settle(4);
+    }],
+    ['㉔ 照片拼图 · 第 1 关填满（碎片各归原位，拼回原图）', function () {
+      BF.App.go('play', { level: 1, game: 'photo' });
+      solveAll(BF.App.scenes.play);
+    }],
+    ['㉕ 照片拼图 · 过关结算', function () {
+      BF.App.go('play', { level: 1, game: 'photo' });
+      var sc = BF.App.scenes.play;
+      solveAll(sc);
+      sc.onSolved();
+    }],
+    ['㉖ 照片拼图 · 第 33 关(6×6) 填满', function () {
+      BF.App.go('play', { level: 33, game: 'photo' });
+      solveAll(BF.App.scenes.play);
+    }],
+    /* 新行为：提示图（棋盘底淡参照）默认显示、进关 5 秒后自动收起，轻触棋盘可切换 */
+    ['㉗ 照片拼图 · 第 1 关「提示图已隐藏」（轻触棋盘 / 5 秒后收起，只剩网格底）', function () {
+      BF.App.go('play', { level: 1, game: 'photo' });
+    }, function (sc) {
+      sc.showHint = false; sc.hintAuto = false; sc.hintFlip = 0;
+      sc.render(BF.platform.ctx);
+    }],
+    ['㉘ 照片拼图 · 提示图「翻合」动画中途（轻触棋盘切换时看到的过渡）', function () {
+      BF.App.go('play', { level: 1, game: 'photo' });
+    }, function (sc) {
+      sc.showHint = false; sc.hintAuto = false; sc.hintFlip = 0.7;   // 强制停在翻合中途，看动画形态
+      sc.render(BF.platform.ctx);
+    }],
+
+    /* ---- 游戏 4：图片找不同 ---- */
+    ['㉙ 图片找不同 · 关卡选择（难度条 = 不同处数 3~8）', function () {
+      BF.Save.bucket('diff').unlocked = 30;
+      BF.App.go('levels', { game: 'diff' });
+    }, function (sc) {
+      // 关卡页进入时会自动滚到"当前进度"那一行（unlocked=30 时正好滚到底），
+      // 快照要从头看，所以把 scroll 归零再画一帧。
+      sc.scroll = 0; sc.vel = 0; sc.render(BF.platform.ctx);
+    }],
+    ['㉚ 图片找不同 · 第 1 关初始态（上下 A/B 两图，3 处不同）', function () {
+      BF.App.go('diff', { level: 1, game: 'diff' });
+    }],
+    ['㉛ 图片找不同 · 找到 1 处（绿圈标记）+ 提示圈出第 2 处', function () {
+      BF.App.go('diff', { level: 1, game: 'diff' });
+    }, function (sc) {
+      var d = sc.puzzle.diffs;
+      // 点中第一处（走真实命中判定，不直接改内部状态）
+      sc.handleTap(sc.rectB.x + (d[0].u + d[0].uw / 2) * sc.rectB.w,
+                   sc.rectB.y + (d[0].v + d[0].vh / 2) * sc.rectB.h, sc.rectB);
+      sc.doAction('hint');           // 提示会自动挑一处"还没找到且没提示过"的
+      sc.render(BF.platform.ctx);
+    }],
+    ['㉜ 图片找不同 · 点错时的红叉反馈', function () {
+      BF.App.go('diff', { level: 1, game: 'diff' });
+    }, function (sc) {
+      sc.handleTap(sc.rectB.x + 4, sc.rectB.y + 4, sc.rectB);   // 左上角，必不命中
+      sc.render(BF.platform.ctx);
+    }],
+    ['㉝ 图片找不同 · 全部找到 · 结算', function () {
+      BF.App.go('diff', { level: 1, game: 'diff' });
+      // 在 setup 里就点完 —— 后面 settle 的 45 帧会把弹窗的放大/星星动画走完。
+      // （若放到 post 里点，win.t 还是 0，弹窗 alpha=0，截出来就是"没有弹窗"）
+      var sc = BF.App.scenes.diff, d = sc.puzzle.diffs;
+      for (var i = 0; i < d.length; i++) {
+        sc.handleTap(sc.rectB.x + (d[i].u + d[i].uw / 2) * sc.rectB.w,
+                     sc.rectB.y + (d[i].v + d[i].vh / 2) * sc.rectB.h, sc.rectB);
+      }
+    }],
+    ['㉞ 图片找不同 · 第 40 关（6 处不同，高密度）', function () {
+      BF.Save.bucket('diff').unlocked = 60;
+      BF.App.go('diff', { level: 40, game: 'diff' });
+    }],
+
+    /* ---- 游戏 5：瓶子颜色推理 ---- */
+    ['㉟ 瓶子颜色推理 · 第 1 关初始（两排瓶子：上排目标、下排你的，点两个交换）', function () {
+      BF.Save.bucket('bottle').unlocked = 60;
+      BF.App.go('bottle', { level: 1, game: 'bottle' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊱ 瓶子颜色推理 · 选中一个瓶子（高亮待配对）', function () {
+      BF.App.go('bottle', { level: 1, game: 'bottle' });
+    }, function (sc) {
+      var s = sc.playerSlots[0];
+      sc.onDown(s.x + s.w / 2, s.y + s.h / 2);
+      sc.onUp(s.x + s.w / 2, s.y + s.h / 2);   // 只点一次 → 进入"已选中"态
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊲ 瓶子颜色推理 · 交换一步后（反馈"对了 X/N"）', function () {
+      BF.App.go('bottle', { level: 1, game: 'bottle' });
+    }, function (sc) {
+      var a = sc.playerSlots[0], b = sc.playerSlots[1];
+      sc.onDown(a.x + a.w / 2, a.y + a.h / 2); sc.onUp(a.x + a.w / 2, a.y + a.h / 2);
+      sc.onDown(b.x + b.w / 2, b.y + b.h / 2); sc.onUp(b.x + b.w / 2, b.y + b.h / 2);
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊳ 瓶子颜色推理 · 过关结算', function () {
+      BF.App.go('bottle', { level: 1, game: 'bottle' });
+    }, function (sc) {
+      sc.order = sc.target.slice();
+      sc.recompute();
+      sc.onSolved();
+      sc.render(BF.platform.ctx);
+    }],
+
+    /* ---- 游戏 6：密码推理 ---- */
+    ['㊴ 密码推理 · 第 1 关初始（隐藏密码条 + 空猜测板 + 调色板）', function () {
+      BF.Save.bucket('cipher').unlocked = 60;
+      BF.App.go('cipher', { level: 1, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊵ 密码推理 · 填了两格（未提交）', function () {
+      BF.App.go('cipher', { level: 1, game: 'cipher' });
+    }, function (sc) {
+      sc.edit[0] = 0; sc.edit[1] = 2;   // 先填两个颜色
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊶ 密码推理 · 提交一行后（带逐格反馈）', function () {
+      BF.App.go('cipher', { level: 1, game: 'cipher' });
+    }, function (sc) {
+      for (var i = 0; i < sc.cfg.slots; i++) { sc.edit[i] = i; }
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊷ 密码推理 · 破译成功结算', function () {
+      BF.App.go('cipher', { level: 1, game: 'cipher' });
+    }, function (sc) {
+      sc.edit = sc.code.slice();
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊸ 密码推理 · 点按图例弹出说明（位置对）', function () {
+      BF.App.go('cipher', { level: 1, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);            // 先渲染，图例命中盒才回填
+      var r = sc.legendRects[0];
+      sc.onDown(r.x + r.w / 2, r.y + r.h / 2);
+      sc.onUp(r.x + r.w / 2, r.y + r.h / 2);
+      sc.update(200);                        // 推进动画，避免抓到半透明中间态
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊹ 密码推理 · 圆点提示关 + 长按图例（排除）', function () {
+      BF.App.go('cipher', { level: 4, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+      var r = sc.legendRects[2];
+      sc.onDown(r.x + r.w / 2, r.y + r.h / 2);
+      for (var a = 0; a < 600; a += 16) { sc.update(16); }   // 按住 600ms = 长按
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊺ 密码推理 · 圆点提示关提交一行（点画在颜色正下方）', function () {
+      BF.App.go('cipher', { level: 5, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+      for (var k = 0; k < sc.cfg.slots; k++) {
+        var p = sc.palettes[k];
+        sc.onDown(p.x + p.w / 2, p.y + p.h / 2);
+        sc.onUp(p.x + p.w / 2, p.y + p.h / 2);
+      }
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊻ 密码推理 · 点第 3 格选中后填色（任意指定位置）', function () {
+      BF.App.go('cipher', { level: 3, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+      // 先点第 3 格（下标 2）选中，再点两个颜色 —— 颜色应落在 3、4 格而不是 1、2 格
+      var c = sc.cellRect(0, 2);
+      sc.onDown(c.x + c.w / 2, c.y + c.h / 2);
+      sc.onUp(c.x + c.w / 2, c.y + c.h / 2);
+      for (var k = 0; k < 2; k++) {
+        var p = sc.palettes[k];
+        sc.onDown(p.x + p.w / 2, p.y + p.h / 2);
+        sc.onUp(p.x + p.w / 2, p.y + p.h / 2);
+      }
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊼ 密码推理 · 终关（逐格圆点）提交后（绿圈=位置对 / 灰圈=不对但不告诉你）', function () {
+      BF.App.go('cipher', { level: 7, game: 'cipher' });
+    }, function (sc) {
+      // 提交一行错位的猜测：绝大多数格子会画成空心灰圈（'exact' 关不给"换位/排除"）
+      var i;
+      for (i = 0; i < sc.cfg.slots; i++) {
+        sc.onDown(sc.palettes[i].x + 4, sc.palettes[i].y + 4);
+        sc.onUp(sc.palettes[i].x + 4, sc.palettes[i].y + 4);
+      }
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊽ 密码推理 · 数量提示关（第 8 关）：反馈改画在行右侧，只给绿/白/黑点的个数', function () {
+      BF.App.go('cipher', { level: 8, game: 'cipher' });
+    }, function (sc) {
+      function palK(k) {
+        var p = sc.palettes[k];
+        sc.onDown(p.x + p.w / 2, p.y + p.h / 2);
+        sc.onUp(p.x + p.w / 2, p.y + p.h / 2);
+      }
+      var i;
+      for (i = 0; i < sc.cfg.slots; i++) { palK(i); }          // 第一行
+      sc.submit();
+      for (i = 0; i < sc.cfg.slots; i++) { palK((i + 2) % sc.cfg.slots); }   // 第二行错开
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊾ 密码推理 · 数量提示关的图例长按说明（"换位"）', function () {
+      BF.App.go('cipher', { level: 8, game: 'cipher' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);                              // 先渲染，图例命中盒才回填
+      var r = sc.legendRects[1];
+      sc.onDown(r.x + r.w / 2, r.y + r.h / 2);
+      for (var a = 0; a < 600; a += 16) { sc.update(16); }     // 按住 600ms = 长按
+      sc.render(BF.platform.ctx);
+    }],
+    ['㊿ 密码推理 · 末关（第 10 关）：十色满池 + 数量提示（调色板一行放得下 10 色）', function () {
+      BF.App.go('cipher', { level: 10, game: 'cipher' });
+    }, function (sc) {
+      for (var i = 0; i < sc.cfg.slots; i++) {
+        var p = sc.palettes[i];
+        sc.onDown(p.x + p.w / 2, p.y + p.h / 2);
+        sc.onUp(p.x + p.w / 2, p.y + p.h / 2);
+      }
+      sc.submit();
+      sc.render(BF.platform.ctx);
+    }]
+  /* ---- 游戏 7：移车出库（Rush Hour / 华容道滑车）---- */
+  ,
+    ['🚓 移车出库 · 关卡选择（顶部难度条 入门/进阶/困难/专家）', function () {
+      var b = BF.Save.bucket('rush');
+      b.unlocked = 60;            // 全部解锁，看清网格
+      BF.App.go('levels', { game: 'rush' });
+    }],
+    ['🚓 移车出库 · 第 1 关初始（6×6 停车场，右侧出口在警车所在行）', function () {
+      BF.Save.bucket('rush').unlocked = 60;
+      BF.App.go('rush', { level: 1, game: 'rush' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🚓 移车出库 · 第 1 关通关（警车驶出 + 3 星结算弹窗）', function () {
+      BF.App.go('rush', { level: 1, game: 'rush' });
+    }, function (sc) {
+      playRush(sc);
+      settle(65);                 // 推进驶出动画(WIN_ANIM=480ms) + 结算卡淡入(260ms) → 面板完全不透明
+      sc.render(BF.platform.ctx);
+    }],
+    ['🚓 移车出库 · 专家档第 20 关初始（R6/R7 约束：无贴墙死车 + 警车必可动）', function () {
+      BF.App.go('rush', { level: 20, game: 'rush' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🚓 移车出库 · 难度自选首屏（首页进入：4 档难度 + 各档进度/步数区间）', function () {
+      var b = BF.Save.bucket('rush');
+      b.unlocked = 60;
+      b.cleared = { '1': 3, '2': 3, '3': 2, '6': 3, '7': 2, '11': 1 };
+      BF.App.go('rush', { pickDiff: true, game: 'rush' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🚓 移车出库 · 拖动中：车身下方画出「能滑到哪」的轨道', function () {
+      BF.App.go('rush', { level: 6, game: 'rush' });
+    }, function (sc) {
+      for (var i = 0; i < sc.cars.length; i++) {
+        var rg = sc.legalRange(i);
+        if (rg.min === rg.max) { continue; }
+        var r = sc.carRect(sc.cars[i]);
+        sc.onDown(r.x + r.w / 2, r.y + r.h / 2);
+        if (sc.drag) { sc.drag.cur = sc.drag.range.min; }
+        break;
+      }
+      sc.render(BF.platform.ctx);
+    }],
+    ['🚓 移车出库 · 拖不动反馈：车身抖动 + 挡路车描红 + 气泡说明', function () {
+      for (var n = 1; n <= BF.games.rush.TOTAL; n++) {
+        var b = BF.RushGen.build(n);
+        var stk = BF.RushGen.stuckCars(b).filter(function (i) { return !b.cars[i].police; });
+        if (stk.length) { BF.App.go('rush', { level: n, game: 'rush' }); return; }
+      }
+      BF.App.go('rush', { level: 1, game: 'rush' });
+    }, function (sc) {
+      var stk = BF.RushGen.stuckCars({ size: sc.size, exitRow: sc.exitRow, cars: sc.cars })
+        .filter(function (i) { return !sc.cars[i].police; });
+      if (!stk.length) { return; }
+      var r = sc.carRect(sc.cars[stk[0]]);
+      sc.onDown(r.x + r.w / 2, r.y + r.h / 2);     // 拖不动的车 → 抖动 + 描红挡路车
+      sc.update(40);
+      sc.render(BF.platform.ctx);
+    }],
+    /* ================= 游戏 8「超级积木」（58~63） ================= */
+    ['🧱 超级积木 · 第 1 关初始（8×8 LED 亮区 + 托盘 + 指定红/绿双色）', function () {
+      BF.Save.bucket('blocks').unlocked = 40;
+      BF.App.go('blocks', { level: 1, game: 'blocks' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 拖拽中（合法位置绿色吸附预览 + 跟手积木）', function () {
+      BF.App.go('blocks', { level: 1, game: 'blocks' });
+    }, function (sc) {
+      var pc = null;
+      for (var i = 0; i < sc.pieces.length; i++) { if (!sc.pieces[i].placed) { pc = sc.pieces[i]; break; } }
+      if (!pc || !sc.trayTokens) { return; }
+      var bb = BF.BlocksGen.bbox(BF.BlocksGen.PIECE_ROT[pc.id][pc.rot]);
+      var td = pc._tray;                 // 抓取点 = 托盘里积木实际绘制中心
+      var sx = td.x + bb.w * td.cs / 2, sy = td.y + bb.h * td.cs / 2;
+      sc.onDown(sx, sy);
+      sc.onMove(sx + 1, sy + 1);         // 首次 move 仅记起点（越过 tap/drag 阈值）
+      // 把手指移到该积木标准解位置的中心 → 吸附合法（绿框）
+      var std = sc.stdById[pc.id];
+      sc.onMove(sc.boardX + (std.x + bb.w / 2) * sc.cell, sc.boardY + (std.y + bb.h / 2) * sc.cell);
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 落子正确（前两块已归位，进度 2/5 块）', function () {
+      BF.App.go('blocks', { level: 1, game: 'blocks' });
+    }, function (sc) {
+      for (var i = 0; i < 2 && i < sc.pieces.length; i++) {
+        var pc = sc.pieces[i], std = sc.stdById[pc.id];
+        pc.placed = true; pc.rot = std.rot; pc.x = std.x; pc.y = std.y;
+      }
+      sc.recompute();
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 非法落位（压到暗格 → 红闪 + 退回托盘）', function () {
+      BF.App.go('blocks', { level: 1, game: 'blocks' });
+    }, function (sc) {
+      var dark = -1;
+      for (var k = 0; k < 64; k++) { if (!sc.lit[k]) { dark = k; break; } }
+      if (dark < 0 || !sc.trayTokens) { return; }
+      var pc0 = sc.trayTokens[0].piece;
+      var bb0 = BF.BlocksGen.bbox(BF.BlocksGen.PIECE_ROT[pc0.id][pc0.rot]);
+      var td0 = pc0._tray;
+      var sx0 = td0.x + bb0.w * td0.cs / 2, sy0 = td0.y + bb0.h * td0.cs / 2;
+      var dx0 = sc.boardX + (dark % 8 + 0.5) * sc.cell, dy0 = sc.boardY + (((dark / 8) | 0) + 0.5) * sc.cell;
+      sc.onDown(sx0, sy0);
+      sc.onMove(sx0 + 1, sy0 + 1);      // 首次 move 仅记起点
+      sc.onMove(dx0, dy0);
+      sc.onUp(dx0, dy0);
+      sc.render(BF.platform.ctx);   // flash.t=260 仍在，红闪可见
+    }],
+    ['🧱 超级积木 · 通关结算（全部填满 + 3 星弹窗）', function () {
+      BF.App.go('blocks', { level: 1, game: 'blocks' });
+    }, function (sc) {
+      for (var i = 0; i < sc.pieces.length; i++) {
+        var pc = sc.pieces[i], std = sc.stdById[pc.id];
+        pc.placed = true; pc.rot = std.rot; pc.x = std.x; pc.y = std.y;
+      }
+      sc.recompute();
+      sc.onSolved();
+      settle(65);                   // 结算卡淡入(260ms)
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 限时挑战（第 10 关换档题：倒计时进度条 + S~E 评级）', function () {
+      BF.App.go('blocks', { level: 10, game: 'blocks' });
+    }, function (sc) {
+      sc.update(26000);             // 烧掉 26s，让进度条走掉约 1/3
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 困难档第 25 关（三色 9 块 / 亮区约 40 格，占盘 2/3）', function () {
+      BF.App.go('blocks', { level: 25, game: 'blocks' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 专家档第 40 关（三色 11 块 / 亮区约 46 格，托盘双行）', function () {
+      BF.App.go('blocks', { level: 40, game: 'blocks' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 专家档第 40 关（拖入 4 块后的棋盘填充进度）', function () {
+      BF.App.go('blocks', { level: 40, game: 'blocks' });
+    }, function (sc) {
+      var placed = 0;
+      for (var i = 0; i < sc.pieces.length && placed < 4; i++) {
+        var pc = sc.pieces[i], std = sc.stdById[pc.id];
+        if (pc.placed) { continue; }
+        pc.placed = true; pc.rot = std.rot; pc.x = std.x; pc.y = std.y;
+        placed++;
+      }
+      sc.recompute();
+      sc.render(BF.platform.ctx);
+    }],
+    /* ================= 「先选难度，再进游戏」首屏（共用 BF.DiffPick） ================= */
+    ['🔍 图片找不同 · 难度自选首屏（6 档：3~8 处不同，含各档进度）', function () {
+      var b = BF.Save.bucket('diff');
+      b.unlocked = BF.games.diff.TOTAL;
+      b.cleared = { '1': 3, '2': 3, '9': 2, '19': 3, '31': 1 };
+      BF.App.go('diff', { pickDiff: true, game: 'diff' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 难度自选首屏（4 档：5/7/9/11 块，含各档进度）', function () {
+      var b = BF.Save.bucket('blocks');
+      b.unlocked = 40;
+      b.cleared = { '1': 3, '2': 3, '3': 2, '11': 3, '12': 2, '21': 1 };
+      BF.App.go('blocks', { pickDiff: true, game: 'blocks' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🧱 超级积木 · 难度自选首屏按下态（点「专家」档的按压反馈）', function () {
+      BF.Save.bucket('blocks').unlocked = 40;
+      BF.App.go('blocks', { pickDiff: true, game: 'blocks' });
+    }, function (sc) {
+      var c = sc.pickCards[3];
+      sc.onDown(c.x + c.w / 2, c.y + c.h / 2);   // 只按不抬 → 按压态
+      sc.render(BF.platform.ctx);
+    }],
+    /* ================= 九宫格数独（第 9 款） ================= */
+    ['🔢 九宫格数独 · 难度自选首屏（4 档：挖 36/45/51/56 空）', function () {
+      var b = BF.Save.bucket('sudoku');
+      b.unlocked = 40;
+      b.cleared = { '1': 3, '2': 3, '3': 2, '11': 3, '21': 1 };
+      BF.App.go('sudoku', { pickDiff: true, game: 'sudoku' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🔢 九宫格数独 · 入门第 1 关开局（45 个给定数 + 数字键盘）', function () {
+      BF.App.go('sudoku', { level: 1, game: 'sudoku' });
+    }, function (sc) {
+      sc.render(BF.platform.ctx);
+    }],
+    ['🔢 九宫格数独 · 选中格高亮 + 铅笔候选数（第 1 关填了一半）', function () {
+      BF.App.go('sudoku', { level: 1, game: 'sudoku' });
+    }, function (sc) {
+      // 填前 12 个空格：按解的填一半，另一半写铅笔候选
+      var done = 0;
+      for (var i = 0; i < 81 && done < 12; i++) {
+        if (sc.puzzle.given[i]) { continue; }
+        if (done % 2 === 0) { sc.entries[i] = sc.puzzle.solution[i]; }
+        else {
+          sc.pencil[i] = (1 << ((sc.puzzle.solution[i] + 2) % 9)) | (1 << ((sc.puzzle.solution[i] + 5) % 9));
+        }
+        done++;
+      }
+      // 选中第 20 格（演示行/列/宫淡显 + 同数字高亮）
+      sc.selected = 20;
+      sc.elapsed = 185000;
+      sc.render(BF.platform.ctx);
+    }],
+    ['🔢 九宫格数独 · 检查标红（填错的两格）+ 通关结算', function () {
+      BF.App.go('sudoku', { level: 1, game: 'sudoku' });
+    }, function (sc) {
+      // 填满但留两格错 → 点「检查」→ 标红
+      var wrong = [];
+      for (var i = 0; i < 81; i++) {
+        if (sc.puzzle.given[i]) { continue; }
+        if (wrong.length < 2) {
+          sc.entries[i] = sc.puzzle.solution[i] === 9 ? 8 : sc.puzzle.solution[i] + 1;
+          wrong.push(i);
+        } else {
+          sc.entries[i] = sc.puzzle.solution[i];
+        }
+      }
+      sc.doCheck();
+      sc.render(BF.platform.ctx);
+    }],
+    ['🔢 九宫格数独 · 通关结算（3 星 + 用时 + 最佳）', function () {
+      BF.App.go('sudoku', { level: 1, game: 'sudoku' });
+    }, function (sc) {
+      for (var i = 0; i < 81; i++) {
+        if (sc.puzzle.given[i]) { continue; }
+        sc.entries[i] = sc.puzzle.solution[i];
+      }
+      sc.elapsed = 302000;
+      sc.win = { t: 400, stars: 3, press: null, time: 302000, best: 265000 };
+      sc.render(BF.platform.ctx);
+    }],
+    ['💣 扫雷 · 难度自选首屏（4 档：8×8/10 雷 ~ 14×14/40 雷，含各档进度）', function () {
+      BF.App.go('mine', { pickDiff: true, game: 'mine' });
+    }],
+    ['💣 扫雷 · 入门第 1 关初始（首点前空白态，点任意格生成免猜盘）', function () {
+      BF.App.go('mine', { level: 1, game: 'mine' });
+    }],
+    ['💣 扫雷 · 进行中（首点展开 + 推了几步）', function () {
+      BF.App.go('mine', { level: 1, game: 'mine' });
+      var sc = BF.App.scenes.mine;
+      var c = sc.n, fc = ((c / 2) | 0) * c + ((c / 2) | 0);
+      sc.revealAt(fc);
+      sc.doHint(); sc.doHint(); sc.doHint();
+    }],
+    ['💣 扫雷 · 标记模式（插了几面旗）', function () {
+      BF.App.go('mine', { level: 1, game: 'mine' });
+      var sc = BF.App.scenes.mine;
+      var c = sc.n, fc = ((c / 2) | 0) * c + ((c / 2) | 0);
+      sc.revealAt(fc);
+      sc.doMarkToggle();
+      sc.flagAt(0);
+      sc.flagAt(sc.N - 1);
+      sc.flagAt((c - 1) * c);   // 右上角
+    }],
+    ['💣 扫雷 · 通关结算（3 星 + 用时 + 最佳）', function () {
+      BF.App.go('mine', { level: 1, game: 'mine' });
+      var sc = BF.App.scenes.mine;
+      var c = sc.n, fc = ((c / 2) | 0) * c + ((c / 2) | 0);
+      sc.revealAt(fc);
+      var g = 0;
+      while (!sc.win && g++ < sc.N * sc.N + 50) {
+        var f = sc.findForced();
+        if (!f) { break; }
+        if (f.type === 'mine') { sc.flagAt(f.cell); } else { sc.revealAt(f.cell); }
+      }
+    }],
+    ['💣 扫雷 · 踩雷失败（全部地雷显形 + 重玩/返回首页）', function () {
+      BF.App.go('mine', { level: 1, game: 'mine' });
+      var sc = BF.App.scenes.mine;
+      var c = sc.n, fc = ((c / 2) | 0) * c + ((c / 2) | 0);
+      sc.revealAt(fc);
+      var boom = -1;
+      for (var i = 0; i < sc.N; i++) { if (sc.mines[i]) { boom = i; break; } }
+      sc.revealAt(boom);
+    }],
+
+    /* ---------------- 游戏 12「数织 / Picross」 ---------------- */
+    ['🎨 数织 · 难度自选首屏（4 档：5×5/3 色 ~ 15×15/6 色）', function () {
+      freshSave();
+      BF.App.go('picross', { pickDiff: true, game: 'picross' });
+    }],
+    ['🎨 数织 · 入门第 1 关初始（爱心 · 全未知盘面 + 行/列带色线索 + 调色板）', function () {
+      BF.App.go('picross', { level: 1, game: 'picross' });
+    }],
+    ['🎨 数织 · 进行中（第 3 关苹果：填了一半 + 1 个错格红✕ + 2 个标空✕）', function () {
+      BF.App.go('picross', { level: 3, game: 'picross' });
+    }, function (sc) {
+      // 填一半：按解填前 8 个填色格，其中 1 个填成错色；再给 2 个空位打 ✕
+      var done = 0, marked = 0;
+      for (var i = 0; i < sc.cells.length; i++) {
+        if (sc.cells[i] < 0) {
+          if (marked < 2) { sc.st[i] = -2; marked++; }
+          continue;
+        }
+        if (done < 8) {
+          sc.st[i] = (done === 3) ? sc.colors[sc.colors.length - 1] : sc.cells[i];
+          done++;
+        }
+      }
+      sc.started = true;
+      sc.elapsed = 96000;
+      sc.render(BF.platform.ctx);
+    }],
+    ['🎨 数织 · 标记模式（选中「标空」工具 + 已标 ✕ 的空位）', function () {
+      BF.App.go('picross', { level: 3, game: 'picross' });
+    }, function (sc) {
+      // 选中「标空」工具（调色板最后一项），给前 4 个空位打上 ✕
+      var items = sc.palItems();
+      sc.sel = items[items.length - 1].sel;
+      var marked = 0;
+      for (var i = 0; i < sc.cells.length && marked < 4; i++) {
+        if (sc.cells[i] < 0) { sc.st[i] = -2; marked++; }
+      }
+      sc.started = true;
+      sc.elapsed = 42000;
+      sc.render(BF.platform.ctx);
+    }],
+    ['🎨 数织 · 提示（金圈闪光 + 剩余 2 次 + 填了几格）', function () {
+      BF.App.go('picross', { level: 3, game: 'picross' });
+    }, function (sc) {
+      var done = 0;
+      for (var i = 0; i < sc.cells.length && done < 5; i++) {
+        if (sc.cells[i] >= 0) { sc.st[i] = sc.cells[i]; done++; }
+      }
+      sc.started = true;
+      sc.elapsed = 132000;
+      sc.doHint();               // 用掉 1 次 → 徽标显示 2，并闪金圈
+      sc.render(BF.platform.ctx);
+    }],
+    ['🎨 数织 · 通关结算（3 星 + 用时 + 最佳 + 图案名「苹果」）', function () {
+      BF.App.go('picross', { level: 3, game: 'picross' });
+    }, function (sc) {
+      BF.Save.extraOf('picross').best = { '3': 61000 };
+      for (var i = 0; i < sc.cells.length; i++) {
+        sc.st[i] = sc.cells[i] >= 0 ? sc.cells[i] : -1;
+      }
+      sc.started = true;
+      sc.elapsed = 74000;
+      sc.onSolved();
+      sc.render(BF.platform.ctx);
+    }],
+    /* ---------------- 游戏通用「玩法说明」弹框（BF.RuleTip） ---------------- */
+    ['💡 规则弹框 · 扫雷第 1 关（遮罩压暗盘面 + 白卡规则 + 「不再提示」复选框 + 开始游戏）', function () {
+      freshSave();
+      BF.RuleTip.on = true;          // 这两张专门拍弹框，临时打开总开关
+      BF.App.go('mine', { level: 1, game: 'mine' });
+    }, function (sc) {
+      sc.ruleAnim = 1;               // 动画放完，拍稳定的终态
+      sc.render(BF.platform.ctx);
+    }],
+    ['💡 规则弹框 · 数织第 3 关，已勾选「不再提示」（复选框打勾态 + 关掉后不再弹）', function () {
+      freshSave();
+      BF.RuleTip.on = true;
+      BF.App.go('picross', { level: 3, game: 'picross' });
+    }, function (sc) {
+      sc.ruleNoTip = true;           // 勾选态
+      sc.ruleAnim = 1;
+      sc.render(BF.platform.ctx);
     }]
   ];
 
-  SCENES.forEach(function (s, i) {
-    if (only && i + 1 !== only) { return; }
-    snap(s[0], s[1], s[2]);
-  });
+  /** 照片是异步加载的（浏览器里 Image.onload 比快照抓取晚一拍）。
+   *  不预载的话照片拼图那几页会抓到"纯色兜底块"而非真图。先把全部内置图载完再拍。 */
+  function preloadPhotos(done) {
+    // file:// 下画过图片的画布会被判"跨源污染"、toDataURL 直接抛错，而且一旦污染
+    // 整块画布就永久不能导出 —— 首页缩略图一画出来，连方块/逻辑的快照都会导不出。
+    // 所以 file:// 时索性禁用图片加载：方块/逻辑快照照常导出，照片那几页退化成
+    // 色块兜底；用本地 http 打开则一切正常（含真实照片）。
+    if (location.protocol === 'file:') {
+      if (BF.Photos) { BF.Photos.blocked = true; }
+      if (BF.Diffs) { BF.Diffs.blocked = true; }
+    }
+    if (BF.Photos) { BF.Photos.base = '../'; }
+    if (BF.Diffs) { BF.Diffs.base = '../'; }   // 本页在 test/ 子目录里，指回项目根
 
-  document.title = '视觉快照完成 · ' + row.children.length + ' 张';
+    var jobs = [];
+    if (BF.Photos && !BF.Photos.blocked && BF.PHOTO_ASSETS) {
+      BF.PHOTO_ASSETS.forEach(function (a) { jobs.push(['photo', a.src]); });
+    }
+    if (BF.Diffs && !BF.Diffs.blocked && BF.DIFF_ASSETS) {
+      BF.DIFF_ASSETS.forEach(function (p) { jobs.push(['diff', p.a]); jobs.push(['diff', p.b]); });
+    }
+    if (!jobs.length) { done(); return; }
+
+    var left = jobs.length;
+    jobs.forEach(function (j) {
+      (j[0] === 'photo' ? BF.Photos : BF.Diffs).get(j[1], function () {
+        left--;
+        if (left <= 0) { done(); }
+      });
+    });
+  }
+
+  function runScenes() {
+    SCENES.forEach(function (s, i) {
+      if (only && i + 1 !== only) { return; }
+      snap(s[0], s[1], s[2]);
+    });
+    document.title = '视觉快照完成 · ' + row.children.length + ' 张';
+  }
+
+  /* 规则弹框 harness 默认关掉：否则每个场景 enter 都会先弹一次规则说明，
+     86 张老快照会全部变化（回归 0 差异被破坏）。弹框自身由 87/88 两张专门拍
+     （那两张的 setup 里临时把开关打开）。 */
+  BF.RuleTip.on = false;
+
+  preloadPhotos(runScenes);
 })();
 </script>
 </body>

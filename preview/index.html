@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>益智闯关 · 方块拼图（PC 预览）</title>
+<title>益智闯关 · 合集（PC 预览）</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -82,21 +82,38 @@
   <div class="kicker">PUZZLE ARCADE · 预览</div>
 
   <div class="card">
-    <h2>合集里的两款游戏</h2>
+    <h2>合集里的七款游戏</h2>
     <ul>
       <li><b>方块拼图</b>：棋盘从小到大（4×4 → 8×8），把托盘里的方块拖进去铺满</li>
       <li><b>逻辑拼图</b>：固定 8×8；开局已放好 3 块黑色拼图（占 3 / 2 / 1 格），
           把剩下 8 块拖进去填满</li>
+      <li><b>照片拼图</b>：一张照片切成 N×N（3×3 → 8×8），碎片打乱后拖回原位；
+          <b>每块都要回到它原来的格子</b>才算过关（摆满但摆错不算）。
+          关卡页顶部有「难度」快捷条可直接选 3×3~8×8；棋盘默认铺一层很淡的原图当参照，
+          <b>5 秒后自动收起</b>（轻触棋盘可随时切换显示/隐藏）</li>
+      <li><b>图片找不同</b>：上下两张几乎一样的图，点出 B 图里每一处改动（3 → 8 处）。
+          难点在"点错也算数"——错点会扣星；卡住可用「提示」圈出一处</li>
+      <li><b>瓶子颜色推理</b>：看隐藏目标、交换相邻两瓶，把颜色排成正确顺序</li>
+      <li><b>密码推理</b>：拼一行颜色提交，按逐格反馈（绿=位置对 / 白=颜色对位置错 /
+          黑=没这个色）推理出隐藏密码；后段换成「只报各状态个数」的经典 Mastermind 玩法</li>
+      <li><b>移车出库</b>：6×6 停车场里车辆只能沿自身轴向滑动，把白色警车滑到右侧出口。
+          <b>点首页卡片先选难度</b>（入门 / 进阶 / 困难 / 专家，各 5 关），
+          拖不动某辆车时会抖动并描红"是谁挡住了它"</li>
     </ul>
   </div>
 
   <div class="card">
     <h2>操作</h2>
     <ul>
-      <li>把托盘里的方块拖进棋盘</li>
-      <li>方块自动吸附网格，填满全部格子即过关</li>
-      <li>棋盘上的方块也能再拖起来重摆（黑色固定块不行）</li>
-      <li>底部有撤销 / 重置 / 提示</li>
+      <li><b>拼图三款</b>：把托盘里的碎片拖进棋盘，自动吸附网格；
+          照片拼图要求每块回原位，摆满但摆错不算过</li>
+      <li>棋盘上的碎片也能再拖起来重摆（逻辑拼图的黑色固定块不行）</li>
+      <li><b>图片找不同</b>：点按上下任一图上的差异位置即可标记
+          （点错会画红叉并扣星，3 星 = 全程没错点）；卡住按「提示」圈出一处</li>
+      <li><b>瓶子 / 密码推理</b>：点按选择，按「提交 / 提交猜测」看反馈</li>
+      <li><b>移车出库</b>：按住车沿轴向拖动，松手吸附到最近合法格；
+          拖动时车下方会画出「能滑到哪」的轨道；拖不动时会抖动 + 描红挡路的车</li>
+      <li>底部按钮：拼图是撤销 / 重置 / 提示，找不同是提示 / 重来</li>
     </ul>
   </div>
 
@@ -124,15 +141,43 @@
 <script src="../js/core/save.js"></script>
 <script src="../js/game/generator.js"></script>
 <script src="../js/game/logic.js"></script>
+<script src="../js/game/photoAssets.js"></script>
+<script src="../js/game/photo.js"></script>
+<script src="../js/game/diffAssets.js"></script>
+<script src="../js/game/diff.js"></script>
+<script src="../js/game/bottle.js"></script>
+<script src="../js/game/cipher.js"></script>
+<script src="../js/game/rush.js"></script>
+<script src="../js/game/blocks.js"></script>
+<script src="../js/game/sudoku.js"></script>
+<script src="../js/game/mine.js"></script>
+<script src="../js/game/picross.js"></script>
 <script src="../js/game/model.js"></script>
 <script src="../js/scenes/home.js"></script>
 <script src="../js/scenes/levels.js"></script>
+<script src="../js/scenes/diffpick.js"></script>
+<script src="../js/scenes/ruletip.js"></script>
 <script src="../js/scenes/play.js"></script>
+<script src="../js/scenes/diff.js"></script>
+<script src="../js/scenes/bottle.js"></script>
+<script src="../js/scenes/cipher.js"></script>
+<script src="../js/scenes/rush.js"></script>
+<script src="../js/scenes/blocks.js"></script>
+<script src="../js/scenes/sudoku.js"></script>
+<script src="../js/scenes/mine.js"></script>
+<script src="../js/scenes/picross.js"></script>
 <script src="../js/app.js"></script>
 <script>
+  // 图片资源在"包根"的 assets/ 下；本页在 preview/ 子目录里，
+  // 不指回项目根的话会把 assets/photo/xxx.jpg 解析成 preview/assets/... 而 404。
+  if (BF.Photos) { BF.Photos.base = '../'; }
+  if (BF.Diffs) { BF.Diffs.base = '../'; }
+
   document.getElementById('unlock').onclick = function () {
     BF.Save.bucket('block').unlocked = BF.Levels.TOTAL;
     BF.Save.bucket('logic').unlocked = BF.Logic.TOTAL;
+    BF.Save.bucket('photo').unlocked = BF.games.photo.TOTAL;
+    BF.Save.bucket('diff').unlocked = BF.games.diff.TOTAL;
     BF.Save.flush();
     BF.App.go('levels', { game: 'block' });
   };

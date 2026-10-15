@@ -34,38 +34,74 @@
     this.meta = meta;
     this.skin = meta.skin || 'block';
     this.isLogic = this.skin === 'logic';
+    this.isPhoto = this.skin === 'photo';
 
     this.puzzle = this.isDaily ? meta.buildDaily() : meta.build(this.level);
     this.model = new BF.Model(this.puzzle);
     this.win = null; this.drag = null; this.toast = null; this.hintFx = null;
     this.confirmReset = 0;
     this.fadeIn = 1;
+    // 照片是异步加载的。没加载完之前退化成色块（见 paintPiece），
+    // 这样"图还没到"的那一两帧不会是一片空白，逻辑测试也不需要真图。
+    this.photoImg = null;
+    this.photoErr = null;
+    // 照片提示图（棋盘底的淡参照）状态：默认显示，进关 5 秒后自动收起，
+    // 玩家可随时轻触棋盘空白区切换。hintFlip 是"翻合"动画的视觉量（1=完全展开）。
+    this.showHint = true;
+    this.hintAuto = true;
+    this.hintCount = 5000;
+    this.hintFlip = 1;
+    this.boardTap = null;
+    if (this.isPhoto) { this.loadPhoto(); }
     this.layout();
     this.syncFirst = true;
+    // 「玩法说明」弹框：每次进这款游戏的第一个关卡时弹一次（勾过「不再提示」则不弹）
+    if (BF.RuleTip.shouldShow(this.game, this)) { BF.RuleTip.enter(this, params); }
     return this;
+  };
+
+  /** 取当前关卡的照片（异步，加载完会自己触发重排） */
+  ScenePlay.prototype.loadPhoto = function () {
+    var self = this;
+    var src = this.puzzle.photo && this.puzzle.photo.src;
+    if (!src) { this.photoErr = '没有可用照片'; return; }
+    this.photoErr = null;
+    BF.Photos.get(src, function (err, img) {
+      if (err || !img) {
+        // 只在"还停在同一个关卡"时写状态，避免切关后旧回调污染新题面
+        if (self.puzzle.photo && self.puzzle.photo.src === src) { self.photoErr = String(err || '加载失败'); }
+        return;
+      }
+      if (self.puzzle.photo && self.puzzle.photo.src === src) { self.photoImg = img; }
+    });
   };
 
   /* ---------------- 皮肤：颜色 / 圆角 ---------------- */
 
-  /** 块的颜色：游戏 2 的固定块是墨黑，托盘块走白/黄/蓝/红 */
+  /** 块的颜色：游戏 2 的固定块是墨黑，托盘块走白/黄/蓝/红；照片块用该照片主色（仅兜底时可见） */
   ScenePlay.prototype.pieceColor = function (p) {
     if (this.isLogic) {
       return p.fixed ? BF.LOGIC_THEME.fixed : BF.logicColorOf(p.color).base;
     }
+    if (this.isPhoto) { return p.color || '#8A8F98'; }
     return BF.colorOf(p.color).base;
   };
 
-  /** 块圆角：参考图里游戏 2 的拼图块几乎是直角，比游戏 1 的小很多 */
+  /** 块圆角：游戏 2 几乎是直角；照片切片只留一点点，太圆就不像"一块照片"了 */
   ScenePlay.prototype.pieceRadius = function (scale) {
-    return this.L.cell * (this.isLogic ? 0.09 : 0.18) * (scale || 1);
+    var k = this.isPhoto ? 0.045 : (this.isLogic ? 0.09 : 0.18);
+    return this.L.cell * k * (scale || 1);
   };
 
-  /** 块之间的缝：游戏 2 要留出棋盘底色，块才看得出是一块块拼上去的 */
+  /** 块之间的缝：游戏 2 要留出棋盘底色；照片只要极小一道，用来看出块边界 */
   ScenePlay.prototype.piecePad = function () {
-    return this.isLogic ? 1.1 : 1.6;
+    return this.isPhoto ? 0.6 : (this.isLogic ? 1.1 : 1.6);
   };
 
-  /** 统一的块绘制入口：按皮肤分派（游戏 1 立体方块 / 游戏 2 扁平拼图片） */
+  /**
+   * 统一的块绘制入口：按皮肤分派
+   * 游戏 1 立体方块 / 游戏 2 扁平拼图片 / 游戏 3 照片切片
+   */
   ScenePlay.prototype.paintPiece = function (ctx, x, y, w, h, p, opt) {
     opt = opt || {};
     var o = {
@@ -73,6 +109,15 @@
       radius: opt.radius != null ? opt.radius : this.pieceRadius(),
       lift: !!opt.lift
     };
+    if (this.isPhoto) {
+      if (opt.alpha != null) { o.alpha = opt.alpha; }
+      var ok = D.photoSlice(ctx, x, y, w, h, this.photoImg, p, o);
+      if (ok) { return; }
+      // 图没到 / 加载失败：退化成主色块，游戏照样能玩，不会白屏
+      o.highlight = false;
+      D.tile(ctx, x, y, w, h, this.pieceColor(p), o);
+      return;
+    }
     if (this.isLogic) {
       o.highlight = !!opt.highlight;   // 固定块是墨黑，加高光会很"塑料"
       D.tile(ctx, x, y, w, h, this.pieceColor(p), o);
@@ -223,6 +268,8 @@
 
   ScenePlay.prototype.update = function (dt) {
     var L = this.L;
+    // 规则弹框打开期间：不跑玩法状态机（顺带保证计时/动画不启动）
+    if (this.showRule) { return BF.RuleTip.update(this, dt); }
     if (this.fadeIn > 0) { this.fadeIn = Math.max(0, this.fadeIn - dt / 260); }
     if (this.toast) {
       this.toast.t -= dt;
@@ -232,6 +279,17 @@
     if (this.hintFx) {
       this.hintFx.t -= dt;
       if (this.hintFx.t <= 0) { this.hintFx = null; }
+    }
+    // 提示图：翻合动画 + 5 秒自动收起
+    if (this.isPhoto) {
+      var htarget = this.showHint ? 1 : 0;
+      this.hintFlip += (htarget - this.hintFlip) * (1 - Math.exp(-dt / 130));
+      if (this.hintFlip < 0.001) { this.hintFlip = 0; }
+      if (this.hintFlip > 0.999) { this.hintFlip = 1; }
+      if (this.hintAuto && this.showHint) {
+        this.hintCount -= dt;
+        if (this.hintCount <= 0) { this.showHint = false; this.hintAuto = false; }
+      }
     }
 
     var ps = this.model.pieces;
@@ -267,6 +325,9 @@
   ScenePlay.prototype.onDown = function (x, y) {
     var L = this.L;
 
+    // 规则弹框打开期间：输入全部交给弹框（点遮罩不关，必须点「开始游戏」）
+    if (this.showRule) { BF.RuleTip.onDown(this, x, y); return; }
+
     if (this.win) {
       var ob = this.overlayLayout();
       this.win.press = null;
@@ -279,6 +340,9 @@
       this.app.go(this.isDaily ? 'home' : 'levels', { game: this.game });
       return;
     }
+
+    // header 左上角的「?」：随时重看玩法说明（无视「不再提示」）
+    if (U.pointInRect(x, y, BF.RuleTip.btn(this))) { BF.RuleTip.enter(this, { force: true }); return; }
 
     for (var i = 0; i < L.btns.length; i++) {
       if (U.pointInRect(x, y, L.btns[i])) { this.pressBtn = L.btns[i]; return; }
@@ -307,7 +371,11 @@
         if (U.pointInRect(x, y, rr)) { p = q; break; }
       }
     }
-    if (!p) { return; }
+    if (!p) {
+      // 轻触棋盘空白区：记录为"提示图切换"候选，真正切换在 onUp 判定（避免和拖块混淆）
+      if (U.pointInRect(x, y, L.inner)) { this.boardTap = { x: x, y: y }; }
+      return;
+    }
 
     if (fromBoard) { this.model.lift(p); this.layoutTray(); }
 
@@ -372,6 +440,7 @@
   };
 
   ScenePlay.prototype.onUp = function (x, y) {
+    if (this.showRule) { BF.RuleTip.onUp(this, x, y); return; }
     if (this.win) {
       var ob = this.overlayLayout();
       var hit = this.win.press;
@@ -385,6 +454,14 @@
       var btn = this.pressBtn;
       this.pressBtn = null;
       if (U.pointInRect(x, y, btn)) { this.doAction(btn.key); }
+      return;
+    }
+
+    // 轻触棋盘空白区：切换提示图的显示 / 隐藏
+    if (this.boardTap) {
+      var bt = this.boardTap;
+      this.boardTap = null;
+      if (!this.win && U.pointInRect(x, y, this.L.inner)) { this.toggleHint(); }
       return;
     }
 
@@ -409,6 +486,12 @@
       this.layoutTray();
       BF.platform.vibrate('light');
       if (this.model.isSolved()) { this.onSolved(); }
+      else if (this.puzzle.strict && this.model.remaining() === 0) {
+        // 照片拼图：填满不等于完成，还得每块都在原位。
+        // 不说清楚的话，玩家会以为"摆满了怎么还不过关"，以为是 bug。
+        var wrong = this.model.misplaced();
+        if (wrong > 0) { this.showToast('还有 ' + wrong + ' 块没回到原位'); }
+      }
     } else {
       // 回托盘
       p.scale = 1; p.tScale = 1;
@@ -465,6 +548,19 @@
     this.toast = { text: txt, t: 2000 };
   };
 
+  /** 轻触棋盘：切换提示图。打开时重新武装 5 秒自动收起；关闭后保持隐藏直到再次手动开启 */
+  ScenePlay.prototype.toggleHint = function () {
+    this.showHint = !this.showHint;
+    if (this.showHint) {
+      this.hintAuto = true;
+      this.hintCount = 5000;
+      this.showToast('已显示提示图');
+    } else {
+      this.hintAuto = false;
+      this.showToast('已隐藏提示图');
+    }
+  };
+
   ScenePlay.prototype.onSolved = function () {
     var stars = this.model.stars();
     if (this.isDaily) { BF.Save.clearDaily(stars); }
@@ -474,12 +570,14 @@
   };
 
   ScenePlay.prototype.replay = function () {
+    BF.RuleTip.skipOnce(this);   // 重玩本关不重复弹规则
     this.enter({ game: this.game, level: this.level, daily: this.isDaily });
   };
 
   ScenePlay.prototype.next = function () {
     if (this.isDaily) { this.app.go('home'); return; }
     if (this.level >= this.meta.TOTAL) { this.app.go('levels', { game: this.game }); return; }
+    BF.RuleTip.skipOnce(this);   // 关内进下一关不重复弹规则
     this.enter({ game: this.game, level: this.level + 1 });
   };
 
@@ -503,10 +601,50 @@
       this.isLogic ? { frameTop: LT.frameTop, frameBottom: LT.frameBottom, inner: LT.boardBg } : null);
 
     var i, gx, gy;
+
+    // 游戏 3：棋盘底铺一层极淡的原图当参照。
+    // 没有参照的话，遇到天空、墙面这类大片同色的照片根本无从下手 ——
+    // 但一直全亮会"太明显、像照着描"，所以默认只 0.12，且进关 5 秒后自动收起
+    // （垂直翻合动画 hintFlip → 0），露出只有网格线的"缺省"棋盘；玩家可随时轻触棋盘切换。
+    if (this.isPhoto && this.photoImg && this.hintFlip > 0.02) {
+      ctx.save();
+      var hcy = L.inner.y + L.inner.h / 2;
+      ctx.translate(0, hcy);
+      ctx.scale(1, this.hintFlip);   // 翻合：以棋盘中线为轴纵向收起
+      ctx.translate(0, -hcy);
+      ctx.globalAlpha = 0.12 * this.hintFlip;
+      D.photoSlice(ctx, L.inner.x, L.inner.y, L.inner.w, L.inner.h, this.photoImg,
+        { u: 0, v: 0, uw: 1, vh: 1 },
+        { radius: Math.max(2, L.board.w * 0.02), stroke: false, shadow: false });
+      ctx.restore();
+    }
+
+    // 游戏 3 的网格线：提示图在时用白色细线（压在淡照片上分块），
+    // 提示图收起后换成淡灰线 —— 白底上画白线等于没画，棋盘会变成一片空白。
+    if (this.isPhoto) {
+      var hintOn = this.hintFlip > 0.5;
+      ctx.save();
+      ctx.globalAlpha = hintOn ? 0.14 : 0.17;
+      ctx.strokeStyle = hintOn ? '#FFFFFF' : '#2E3338';
+      ctx.lineWidth = 1;
+      for (i = 1; i < this.model.size; i++) {
+        var lx = L.inner.x + i * L.cell;
+        ctx.beginPath(); ctx.moveTo(lx, L.inner.y); ctx.lineTo(lx, L.inner.y + L.inner.h); ctx.stroke();
+        var ly = L.inner.y + i * L.cell;
+        ctx.beginPath(); ctx.moveTo(L.inner.x, ly); ctx.lineTo(L.inner.x + L.inner.w, ly); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     for (gy = 0; gy < this.model.size; gy++) {
       for (gx = 0; gx < this.model.size; gx++) {
         if (this.model.cells[this.model.idx(gx, gy)] !== -1) { continue; }
         var gxx = L.inner.x + gx * L.cell, gyy = L.inner.y + gy * L.cell;
+        if (this.isPhoto) {
+          // 提示图收起后给空格画浅凹槽当"缺省"格，棋盘不至于全白、看不出格子
+          if (this.hintFlip < 0.5) { D.slot(ctx, gxx, gyy, L.cell, L.cell, { gap: 1.4 }); }
+          continue;
+        }
         if (this.isLogic) {
           // 游戏 2：每格一个圆环点，空格才画（被块盖住的格子不画）
           D.dotGrid(ctx, gxx, gyy, 1, L.cell, { ring: LT.dotRing, hole: LT.dotHole });
@@ -554,9 +692,13 @@
       this.drawPiece(ctx, q, 1);
     }
     if (!list.length) {
-      D.icon(ctx, 'check', L.tray.x + L.tray.w / 2, L.tray.y + L.tray.h / 2 - 10,
-        20, T.ok, { alpha: 0.9 });
-      D.text(ctx, '方块全部就位', L.tray.x + L.tray.w / 2, L.tray.y + L.tray.h / 2 + 16,
+      var wrongN = this.model.misplaced();
+      var done = !(this.puzzle.strict && wrongN > 0);
+      D.icon(ctx, done ? 'check' : 'hint', L.tray.x + L.tray.w / 2, L.tray.y + L.tray.h / 2 - 10,
+        20, done ? T.ok : T.warn, { alpha: 0.9 });
+      D.text(ctx, done ? (this.isPhoto ? '照片拼好了' : '方块全部就位')
+                       : ('还有 ' + wrongN + ' 块没回到原位'),
+        L.tray.x + L.tray.w / 2, L.tray.y + L.tray.h / 2 + 16,
         { size: 12.5, color: T.textSub, weight: '600' });
     }
 
@@ -591,8 +733,15 @@
 
     this.renderFooter(ctx);
     this.renderToast(ctx);
+    this.renderHintTip(ctx);
     if (this.win) { this.renderWin(ctx); }
 
+    // 入场淡入（白色遮罩）必须先于规则弹框画：弹框永远画在最上层。
+    // ⚠️ 曾经把这段淡入放到了 `RuleTip.render` 之后，而 update 在 showRule
+    //    期间提前 return（line 272）→ fadeIn 永远停在 1 → 这层 0.85 白纱
+    //    永久盖在弹框上，弹框内容看起来全透明（能透过它看见棋盘）。
+    //    fake canvas 不合成 alpha，node 探针测不出来，只能靠真机/截图发现
+    //    （回归护栏：tools/_probe_popup_ontop.js 记录绘制顺序抓住同类问题）。
     if (this.fadeIn > 0) {
       ctx.save();
       ctx.globalAlpha = this.fadeIn * 0.85;
@@ -600,6 +749,9 @@
       ctx.fillRect(0, 0, W, H);
       ctx.restore();
     }
+
+    // 规则弹框画在最上层（主体照常画，被遮罩压暗当背景）
+    if (this.showRule) { BF.RuleTip.render(ctx, this); }
   };
 
   ScenePlay.prototype.drawPiece = function (ctx, p, extra, lift) {
@@ -620,9 +772,13 @@
     D.roundRect(ctx, L.back.x + 0.5, L.back.y + 0.5, L.back.w - 1, L.back.h - 1, 14);
     ctx.strokeStyle = T.panelEdge; ctx.lineWidth = 1; ctx.stroke();
     D.icon(ctx, 'back', L.back.x + L.back.w / 2, L.back.y + L.back.h / 2, 16, T.text);
+    // 「?」重看规则入口（不再提示后也能随时打开）
+    BF.RuleTip.renderBtn(ctx, this);
 
     var title = this.isDaily ? '每日挑战' : ('第 ' + this.level + ' 关');
-    var sub = this.isDaily ? BF.util.dateKey(new Date()) : this.meta.title;
+    var sub = this.isDaily ? BF.util.dateKey(new Date())
+      : (this.isPhoto ? (this.meta.title + ' · ' + this.model.size + '×' + this.model.size)
+                      : this.meta.title);
     D.text(ctx, title, pf.width / 2, L.headerY + 20, { size: 19, weight: '700' });
     D.text(ctx, sub, pf.width / 2, L.headerY + 40, { size: 11.5, color: T.textSub });
 
@@ -660,6 +816,23 @@
     var x = (pf.width - w) / 2, y = this.L.board.y + this.L.board.h - 58;
     D.fillRound(ctx, x, y, w, 38, 19, 'rgba(28,31,36,0.88)');
     D.text(ctx, this.toast.text, pf.width / 2, y + 19.5, { size: 13, color: '#FFFFFF', weight: '600' });
+    ctx.restore();
+  };
+
+  /** 进关 5 秒内的温馨提示条：提示图即将自动收起，轻触棋盘可随时切换 */
+  ScenePlay.prototype.renderHintTip = function (ctx) {
+    if (!this.isPhoto || !this.hintAuto) { return; }
+    var pf = BF.platform, W = pf.width;
+    var sec = Math.max(0, Math.ceil(this.hintCount / 1000));
+    var txt = '提示图 ' + sec + 's 后自动隐藏 · 轻触棋盘可切换';
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, this.hintCount / 600); // 最后 0.6s 淡出
+    ctx.font = '600 11.5px ' + D.FONT;
+    var w = ctx.measureText(txt).width + 28;
+    var x = (W - w) / 2;
+    var y = this.L.board.y + 14;   // 贴着棋盘上沿内侧，5 秒后随 hintAuto 关闭一起消失
+    D.fillRound(ctx, x, y, w, 26, 13, 'rgba(28,31,36,0.80)');
+    D.text(ctx, txt, W / 2, y + 13.5, { size: 11.5, color: '#FFFFFF', weight: '600', align: 'center' });
     ctx.restore();
   };
 

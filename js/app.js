@@ -21,7 +21,15 @@
       this.scenes = {
         home: new BF.SceneHome(this),
         levels: new BF.SceneLevels(this),
-        play: new BF.ScenePlay(this)
+        play: new BF.ScenePlay(this),
+        diff: new BF.SceneDiff(this),      // 游戏 4「图片找不同」的独立玩法场景
+        bottle: new BF.SceneBottle(this),  // 游戏 5「瓶子颜色推理」的独立玩法场景
+        cipher: new BF.SceneCipher(this),  // 游戏 6「密码推理」的独立玩法场景
+        rush: new BF.SceneRush(this),       // 游戏 7「移车出库」的独立玩法场景
+        blocks: new BF.SceneBlocks(this),   // 游戏 8「超级积木」的独立玩法场景
+        sudoku: new BF.SceneSudoku(this),   // 游戏 9「九宫格数独」的独立玩法场景
+        mine: new BF.SceneMine(this),        // 游戏 11「扫雷」的独立玩法场景
+        picross: new BF.ScenePicross(this)   // 游戏 12「数织」的独立玩法场景
       };
       this.last = pf.now();
       this.go('home');
@@ -74,7 +82,11 @@
 
         if (failed) {
           self.err++;
-          if (typeof console !== 'undefined') { console.error(failed); }
+          // 打堆栈而不是光打对象：DOMException / 绘制原语抛的错在真机日志里只有
+          // "[object DOMException]" 这种毫无信息量的字符串，定位不到是哪一行画的。
+          if (typeof console !== 'undefined') {
+            console.error((failed && failed.stack) ? failed.stack : failed);
+          }
           // 连续出错说明画布状态已被污染（常见于某个绘制原语漏了 restore、状态栈溢出），
           // 这里主动把状态栈拉回基线，保证下一帧还有机会正常画出来。
           if (self.err >= 3) { self.recoverCanvas(ctx); }

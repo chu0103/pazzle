@@ -13,7 +13,9 @@
   var DEFAULT_GAME = 'block';
 
   function newBucket() {
-    return { cleared: {}, unlocked: 1 };   // { "3": 3 } -> 关卡: 星级
+    // cleared: 关卡→星级；unlocked: 已解锁到第几关；extra: 该游戏自己的扩展数据
+    // （如数独的 { best:{关:毫秒}, prog:{关:断点} }），load 时会原样保留
+    return { cleared: {}, unlocked: 1, extra: {} };
   }
 
   function defaults() {
@@ -37,7 +39,8 @@
             var src = raw.games[k] || {};
             d.games[k] = {
               cleared: (src.cleared && typeof src.cleared === 'object') ? src.cleared : {},
-              unlocked: typeof src.unlocked === 'number' ? src.unlocked : 1
+              unlocked: typeof src.unlocked === 'number' ? src.unlocked : 1,
+              extra: (src.extra && typeof src.extra === 'object') ? src.extra : {}
             };
           }
         } else if (raw.cleared && typeof raw.cleared === 'object') {
@@ -65,6 +68,28 @@
       var g = game || DEFAULT_GAME;
       if (!this.data.games[g]) { this.data.games[g] = newBucket(); }
       return this.data.games[g];
+    },
+
+    /**
+     * 某款游戏的扩展数据对象（数独：{ best:{关:毫秒}, prog:{关:断点} }）。
+     * 各游戏自己约定内部结构，core 只负责原样存取。
+     */
+    extraOf: function (game) {
+      var b = this.bucket(game);
+      if (!b.extra || typeof b.extra !== 'object') { b.extra = {}; }
+      return b.extra;
+    },
+
+    /** 写扩展数据的一个键并落盘 */
+    putExtra: function (game, key, val) {
+      this.extraOf(game)[key] = val;
+      this.flush();
+    },
+
+    /** 删扩展数据的一个键并落盘 */
+    delExtra: function (game, key) {
+      delete this.extraOf(game)[key];
+      this.flush();
     },
 
     isCleared: function (game, n) { return !!this.bucket(game).cleared[String(n)]; },
