@@ -29,7 +29,12 @@
         blocks: new BF.SceneBlocks(this),   // 游戏 8「超级积木」的独立玩法场景
         sudoku: new BF.SceneSudoku(this),   // 游戏 9「九宫格数独」的独立玩法场景
         mine: new BF.SceneMine(this),        // 游戏 11「扫雷」的独立玩法场景
-        picross: new BF.ScenePicross(this)   // 游戏 12「数织」的独立玩法场景
+        picross: new BF.ScenePicross(this),   // 游戏 12「数织」的独立玩法场景
+        pk24: new BF.ScenePk24(this),        // 游戏 13「24点」的独立玩法场景
+        cat: new BF.SceneCat(this),         // 游戏 14「猫猫方块」的独立玩法场景
+        redball: new BF.SceneRedball(this),  // 游戏 15「盯红球」的独立玩法场景
+        tadpole: new BF.SceneTadpole(this),  // 游戏 16「盯蝌蚪」标记追踪+自由漂移玩法场景
+        recall: new BF.SceneRecall(this)     // 游戏 17「瞬时记忆」看图记忆 + 逐题问答玩法场景
       };
       this.last = pf.now();
       this.go('home');

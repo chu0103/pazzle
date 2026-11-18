@@ -9,11 +9,11 @@
     "es6": false,
     "enhance": false,
     "postcss": false,
-    "minified": false,
+    "minified": true,
     "newFeature": true,
     "autoAudits": false,
     "uglifyFileName": false,
-    "uploadWithSourceMap": true,
+    "uploadWithSourceMap": false,
     "babelSetting": {
       "ignore": [],
       "disablePlugins": [],
@@ -44,7 +44,15 @@
         "type": "folder"
       },
       {
+        "value": "_shots",
+        "type": "folder"
+      },
+      {
         "value": "tools",
+        "type": "folder"
+      },
+      {
+        "value": "_gen",
         "type": "folder"
       },
       {

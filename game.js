@@ -26,6 +26,11 @@ require('./js/game/blocks.js');     // 游戏 8「超级积木」关卡生成器
 require('./js/game/sudoku.js');     // 游戏 9「九宫格数独」关卡生成器 + 求解器
 require('./js/game/mine.js');      // 游戏 11「扫雷」关卡生成器 + 演绎求解器
 require('./js/game/picross.js');   // 游戏 12「数织」关卡数据层 + 唯一解求解器
+require('./js/game/pk24.js');      // 游戏 13「24点」关卡生成器 + 求解器
+require('./js/game/cat.js');       // 游戏 14「猫猫方块」关卡生成器 + 求解器
+require('./js/game/redball.js');   // 游戏 15「盯红球」关卡生成器
+require('./js/game/tadpole.js');   // 游戏 16「盯蝌蚪」关卡生成器
+require('./js/game/recall.js');    // 游戏 17「瞬时记忆」场景生成器 + 自动出题
 require('./js/game/model.js');     // 棋盘状态机（前三款游戏共用）
 
 // 4) 场景
@@ -42,6 +47,11 @@ require('./js/scenes/blocks.js');   // 游戏 8 玩法场景（超级积木：�
 require('./js/scenes/sudoku.js');   // 游戏 9 玩法场景（九宫格数独：填数求解）
 require('./js/scenes/mine.js');     // 游戏 11 玩法场景（扫雷：翻格/插旗/免猜）
 require('./js/scenes/picross.js');  // 游戏 12 玩法场景（数织：看行列线索填彩色像素画）
+require('./js/scenes/pk24.js');     // 游戏 13 玩法场景（24点：逐步合并凑 24）
+require('./js/scenes/cat.js');      // 游戏 14 玩法场景（猫猫方块：区域放猫）
+require('./js/scenes/redball.js');  // 游戏 15 玩法场景（盯红球：洗牌追踪）
+require('./js/scenes/tadpole.js');  // 游戏 16 玩法场景（盯蝌蚪：标记追踪+自由漂移）
+require('./js/scenes/recall.js');   // 游戏 17 玩法场景（瞬时记忆：看图记忆+逐题问答）
 
 // 5) 启动
 require('./js/app.js');

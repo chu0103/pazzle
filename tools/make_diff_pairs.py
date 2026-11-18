@@ -25,6 +25,17 @@
 产出：
     assets/diff/dNN_a.jpg  dNN_b.jpg
     js/game/diffAssets.js —— 清单（含 a/b 路径 + 主色 + 差异矩形），游戏直接读
+
+⚠️ 主包瘦身口径（2026-11-17，务必先读）：
+    线上发布的 120 张 diff 图不是本脚本直接产出的 720px，而是经
+    tools/_shrink_assets.py --apply 降采样到 **360×360 / JPEG q84**（photo 保持 600px/q82），
+    diffAssets.js 的 w/h 也同步写 360。差异坐标是归一化的，降采样不影响判定。
+    当前主包 3246KB / 4096KB（余 850KB）。若重新跑本脚本生成 720px 资源（约 3.4MB+），
+    会立刻把主包撑爆 → 重新生成后必须接着跑：
+        python tools/_shrink_assets.py --apply
+        python tools/_verify_pairs.py        # 60 对差异仍在、无额外差异
+        python tools/_size_check.py          # 复核主包 < 4096KB
+    原 480px 备份在 tools/_diff480_backup/，720px 原始备份在 tools/_diff720_backup/。
 """
 import io
 import os

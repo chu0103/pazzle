@@ -33,8 +33,9 @@ function fakeCtx() {
     setTransform: function () {}, transform: function () {}, translate: function () {}, rotate: function () {},
     fillRect: function () {}, clearRect: function () {}, strokeRect: function () {},
     beginPath: function () {}, closePath: function () {}, moveTo: function () {},
-    lineTo: function () {}, arc: function () {}, arcTo: function () {}, rect: function () {},
+    lineTo: function () {},     arc: function () {}, arcTo: function () {}, ellipse: function () {}, rect: function () {},
     clip: function () {}, fill: function () {}, stroke: function () {},
+    quadraticCurveTo: function () {}, bezierCurveTo: function () {},
     setLineDash: function () {},
     // 照片拼图：把 drawImage 的 9 个参数记下来，
     // 这样"切片区域算得对不对"能在测试里直接断言，不用靠看截图。
@@ -132,6 +133,16 @@ load('js/scenes/sudoku.js');    // 游戏 9 玩法场景
 load('js/scenes/mine.js');      // 游戏 11 玩法场景
 load('js/game/picross.js');     // 游戏 12「数织」关卡数据层 + 唯一解求解器
 load('js/scenes/picross.js');   // 游戏 12 玩法场景
+load('js/game/pk24.js');         // 游戏 13「24点」关卡生成器 + 求解器
+load('js/scenes/pk24.js');       // 游戏 13 玩法场景
+load('js/game/cat.js');          // 游戏 14「猫猫方块」关卡生成器 + 求解器
+load('js/scenes/cat.js');        // 游戏 14 玩法场景
+load('js/game/redball.js');      // 游戏 15「盯红球」关卡生成器
+load('js/scenes/redball.js');    // 游戏 15 玩法场景
+load('js/game/tadpole.js');      // 游戏 16「盯蝌蚪」关卡生成器
+load('js/scenes/tadpole.js');    // 游戏 16 玩法场景
+load('js/game/recall.js');       // 游戏 17「瞬时记忆」场景生成器 + 自动出题
+load('js/scenes/recall.js');     // 游戏 17 玩法场景
 load('js/app.js');
 
 /* 规则弹框总开关：harness 里默认关掉（否则 enter 后输入全被弹框拦走，老用例全挂）。
@@ -227,6 +238,7 @@ check(home.cards.length >= 2, '首页卡片数量异常');
    [390, 844, 47, 34], [414, 736, 24, 0], [430, 932, 59, 34], [768, 1024, 24, 0]]
     .forEach(function (dd) {
       pf.width = dd[0]; pf.height = dd[1]; pf.safeTop = dd[2]; pf.safeBottom = dd[3];
+      home.activeChip = 'all';
       home.layout();
       var tag = dd[0] + '×' + dd[1];
       var needScroll = home.contentH > home.viewH + 0.5;
@@ -235,9 +247,10 @@ check(home.cards.length >= 2, '首页卡片数量异常');
       if (!needScroll && home.minScroll !== 0) { bad.push(tag + ' 一屏装得下却开了滚动'); }
       for (var i = 0; i < home.cards.length; i++) {
         var c = home.cards[i];
-        var g = home.cardTextLayout({ x: c.x, y: c.y, w: c.w, h: c.h });
-        if (g.top < c.y - 0.6) { bad.push(tag + ' ' + c.key + ' 文案突出卡片上边'); }
-        if (g.top + g.blockH > c.y + c.h + 0.6) { bad.push(tag + ' ' + c.key + ' 文案突出卡片下边'); }
+        if (c.x == null) { continue; }
+        var g = home.cardInternals(c.x, c.y, c.w, c.h);
+        if (g.blockTop < c.y - 0.6) { bad.push(tag + ' ' + c.key + ' 文案突出卡片上边'); }
+        if (g.blockBottom > c.y + c.h + 0.6) { bad.push(tag + ' ' + c.key + ' 文案突出卡片下边'); }
         if (home.estTextWidth(c.title, g.titleSize) > g.textMax) {
           bad.push(tag + ' ' + c.key + ' 标题过宽');
         }
@@ -245,7 +258,6 @@ check(home.cards.length >= 2, '首页卡片数量异常');
           bad.push(tag + ' ' + c.key + ' 副标题过宽(' + c.sub.length + '字)');
         }
         if (g.isz < 12) { bad.push(tag + ' ' + c.key + ' 图标被压成 ' + g.isz.toFixed(1) + 'px'); }
-        if (g.arrowR * 2 > c.h + 0.5) { bad.push(tag + ' ' + c.key + ' 箭头比卡片还高'); }
       }
     });
   pf.width = keep.w; pf.height = keep.h; pf.safeTop = keep.st; pf.safeBottom = keep.sb;
@@ -269,12 +281,20 @@ check(home.cards.length >= 2, '首页卡片数量异常');
   check(BF.App.current === BF.App.scenes.home, '首页拖动被误判成点击卡片');
   pf.width = keep.w; pf.height = keep.h; pf.safeTop = keep.st; pf.safeBottom = keep.sb;
   home.enter();
-  check(home.scroll === 0 && home.minScroll === 0,
+  // 首页现在是「三大类两列大卡」，12 张卡 + 3 个分组标题在 390×844 上也超一屏，
+  // 会正常开滚动（这是设计如此）。这里只要求滚动位置复位到顶、且不越界。
+  check(home.scroll === 0 && home.minScroll <= 0,
     '还原尺寸后首页滚动状态没复位（scroll=' + home.scroll + ' minScroll=' + home.minScroll + '）');
 })();
 
-var card0 = home.cards[0];
-tap(card0.x + card0.w / 2, card0.y + card0.h / 2);
+// 首页已改为「三大类两列网格」，第一张卡是数独（pickDiff）。
+// 这里要验证的是「点 levels 模式的卡片进关卡页」，所以显式找「方块拼图」卡。
+var card0 = null;
+for (var c0i = 0; c0i < home.cards.length; c0i++) {
+  if (home.cards[c0i].key === 'block') { card0 = home.cards[c0i]; }
+}
+check(!!card0, '首页没有「方块拼图」卡片');
+tap(card0.x + card0.w / 2, card0.y + card0.h / 2 - home.scroll);
 check(BF.App.current === BF.App.scenes.levels, '点卡片没有进入关卡页');
 runFrames(3);
 
@@ -1076,6 +1096,89 @@ runFrames(5);
     check(BF.App.current === BF.App.scenes.home, '难度首屏返回键应回首页');
   }
 
+  /* ---- 9b-2. 移车出库新功能：底部 5 键 / 提示×3 / 标记车辆 / 倒放回初始 ---- */
+  (function () {
+    if (!BF.games.rush) { return; }
+    function btn(sc, key) {
+      for (var i = 0; i < sc.btns.length; i++) { if (sc.btns[i].key === key) { return sc.btns[i]; } }
+      return null;
+    }
+
+    // 1) 底部 5 个按钮齐全
+    BF.App.go('rush', { level: 1, game: 'rush' });
+    runFrames(3);
+    var sc = BF.App.scenes.rush;
+    check(sc.btns.length === 5, '移车出库底部应有 5 个按钮，实际 ' + sc.btns.length);
+    ['undo', 'reset', 'hint', 'rewind', 'mark'].forEach(function (k) {
+      check(!!btn(sc, k), '缺少底部按钮：' + k);
+    });
+
+    // 2) 提示每关 3 次：第 4 次被拒、次数不返负
+    check(sc.hintLeft === 3, '进关提示应为 3 次，实际 ' + sc.hintLeft);
+    sc.doAction('hint'); runFrames(2);
+    check(sc.hintLeft === 2 && !!sc.hint, '第 1 次提示应生效并剩 2 次');
+    sc.doAction('hint');
+    check(sc.hintLeft === 1, '第 2 次提示后应剩 1 次');
+    sc.doAction('hint');
+    check(sc.hintLeft === 0, '第 3 次提示后应剩 0 次');
+    sc.doAction('hint');
+    check(sc.hintLeft === 0, '第 4 次提示应被拒（次数不变负）');
+
+    // 3) 标记车辆：进标记模式点车打标 → 再点取消；退出后点车不再打标
+    var markBtn = btn(sc, 'mark');
+    tap(markBtn.x + markBtn.w / 2, markBtn.y + markBtn.h / 2); runFrames(2);
+    check(sc.markMode === true, '点「标记」应进入标记模式');
+    var target = sc.cars[1] || sc.cars[0];
+    var tr = sc.carRect(target), tcx = tr.x + tr.w / 2, tcy = tr.y + tr.h / 2;
+    tap(tcx, tcy); runFrames(2);
+    check(target.mark === true, '标记模式点车应打上标记');
+    tap(tcx, tcy); runFrames(2);
+    check(target.mark === false, '标记模式再点同一辆车应取消标记');
+    tap(markBtn.x + markBtn.w / 2, markBtn.y + markBtn.h / 2); runFrames(2);
+    check(sc.markMode === false, '再点「标记」应退出标记模式');
+    tap(tcx, tcy); runFrames(2);
+    check(target.mark === false, '退出标记模式后点车不应打标');
+
+    // 4) 倒放：真实拖一步构造历史 → 倒放回初始（步数/历史清零、局面=初始）
+    BF.App.go('rush', { level: 1, game: 'rush' });
+    runFrames(3);
+    sc = BF.App.scenes.rush;
+    var init = sc.cars.map(function (c) { return (c.horiz ? c.x : c.y); }).join(',');
+    var mi = -1;
+    for (var i = 1; i < sc.cars.length; i++) {
+      if (sc.legalRange(i).min !== sc.legalRange(i).max) { mi = i; break; }
+    }
+    check(mi >= 0, 'L1 应至少有一辆可动的非警车');
+    if (mi >= 0) {
+      var car = sc.cars[mi], rg2 = sc.legalRange(mi);
+      var to = car.horiz ? (car.x < rg2.max ? car.x + 1 : car.x - 1)
+                         : (car.y < rg2.max ? car.y + 1 : car.y - 1);
+      var a = sc.carRect(car), b = sc.carRect(car, to);
+      if (car.horiz) { drag(a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, a.y + a.h / 2); }
+      else { drag(a.x + a.w / 2, a.y + a.h / 2, a.x + a.w / 2, b.y + b.h / 2); }
+      runFrames(2);
+      check(sc.steps === 1 && sc.history.length === 1, '拖动一步应记 1 步历史，实际 steps=' + sc.steps);
+      var rw = btn(sc, 'rewind');
+      tap(rw.x + rw.w / 2, rw.y + rw.h / 2);
+      check(!!sc.rewind, '点「倒放」应开始倒放动画');
+      var guard = 0;
+      while (sc.rewind && guard++ < 3000) { frameOnce(); }   // 泵到倒放结束（也覆盖倒放中渲染不崩）
+      check(!sc.rewind, '倒放应自动结束');
+      check(sc.steps === 0 && sc.history.length === 0, '倒放后步数/历史应清零');
+      check(sc.cars.map(function (c) { return (c.horiz ? c.x : c.y); }).join(',') === init,
+        '倒放后应回到初始局面');
+    }
+
+    // 5) 无历史时点倒放只 toast、不启动
+    BF.App.go('rush', { level: 2, game: 'rush' });
+    runFrames(3);
+    sc = BF.App.scenes.rush;
+    var rw2 = btn(sc, 'rewind');
+    tap(rw2.x + rw2.w / 2, rw2.y + rw2.h / 2); runFrames(2);
+    check(!sc.rewind, '无历史时点倒放不应启动倒放');
+    check(!!sc.toast, '无历史时点倒放应弹提示');
+  })();
+
   /* ---- 9b-4. 图片找不同 / 超级积木：首页卡片同样先选难度，再进游戏 ---- */
   var PICK_GAMES = [
     { key: 'diff', scene: 'diff', nTiers: 6, firsts: [1, 9, 19, 31, 43, 53], probe: 'diffs' },
@@ -1728,6 +1831,460 @@ runFrames(5);
   solvePicross(scD);
   check(!!scD.win, '数织每日挑战应能通关');
   check(BF.Save.isDailyDoneToday(), '数织每日挑战通关后应标记今日已完成');
+})();
+
+/* ---------- 9h. 24点（第 13 款）：无尽随机发牌 + 真实点通通关 + 整除拦截 + 撤销/重置/提示 + 下一题换副 ---------- */
+(function () {
+  if (!BF.games.pk24) { console.log('  ⚠ 未注册 pk24，跳过'); return; }
+  var Gen = BF.Pk24Gen;
+
+  // 用 solveSeq 的合并序列真实点通整副牌（与玩家操作同构：点牌→点运算符→点另一张）
+  function cardCenter(sc, i) { var r = sc.tokenRects[i]; return { x: r.x + r.w / 2, y: r.y + r.h / 2 }; }
+  function opCenter(sc, op) {
+    for (var b = 0; b < sc.opBtns.length; b++) { if (sc.opBtns[b].op === op) { return { x: sc.opBtns[b].x + sc.opBtns[b].w / 2, y: sc.opBtns[b].y + sc.opBtns[b].h / 2 }; } }
+    return null;
+  }
+  function driveWin(sc) {
+    var seq = Gen.solveSeq(sc.initialVals.slice());
+    check(!!seq, '24点当前副应可解（生成器保证重抽到可解才发）');
+    if (!seq) { return; }
+    for (var s = 0; s < seq.length; s++) {
+      var c1 = cardCenter(sc, seq[s].i); tap(c1.x, c1.y);
+      var o = opCenter(sc, seq[s].op); tap(o.x, o.y);
+      var c2 = cardCenter(sc, seq[s].j); tap(c2.x, c2.y);
+    }
+  }
+
+  /* ---- 9h-1. 进游戏发 4 张牌、可解、真实点通通关 ---- */
+  BF.App.go('pk24', { game: 'pk24' });
+  runFrames(2);
+  var sc = BF.App.scenes.pk24;
+  check(BF.App.current === sc, '首页点 24点应进入玩法场景');
+  check(sc.cards.length === 4, '24点开局应发 4 张牌，实际 ' + sc.cards.length);
+  check(!!sc.solution, '24点当前副应给出一种解法（可解保证）');
+  driveWin(sc);
+  check(!!sc.win, '24点应能用 solveSeq 驱动真实点通');
+  check(sc.cards.length === 1 && sc.cards[0].v === 24, '24点通关后只剩 1 张且值=24');
+  check(sc.win && sc.win.stars >= 1 && sc.win.stars <= 3, '24点星级应在 1~3');
+  check((BF.Save.extraOf('pk24').solved) >= 1, '24点通关后无尽统计「已解题数」应 +1');
+
+  /* ---- 9h-2. 下一题：换一副新 4 张牌、清算结算态、已解题数累加 ---- */
+  var solvedBefore = (BF.Save.extraOf('pk24').solved) || 0;
+  var ob = sc.overlayLayout();
+  tap(ob.next.x + ob.next.w / 2, ob.next.y + ob.next.h / 2);
+  runFrames(2);
+  check(sc.win === null, '点「下一题」应清掉结算态');
+  check(sc.cards.length === 4, '点「下一题」应发一副新 4 张牌');
+  check((BF.Save.extraOf('pk24').solved) === solvedBefore, '点「下一题」不解题，已解题数应保持不变（+1 已在 9h-1 通关时计入）');
+
+  /* ---- 9h-3. 整除拦截：选两张不能整除的牌做除法，该步不可用、张数不变 ---- */
+  var deal3 = null;
+  for (var z = 0; z < 600; z++) {
+    var cand = Gen.dealFromSeed(1000 + z);
+    if (cand.indexOf(3) >= 0 && cand.indexOf(8) >= 0) { deal3 = cand; break; }
+  }
+  check(!!deal3, '应能找到含 3 和 8 的可解副（整除拦截用例）');
+  if (deal3) {
+    BF.App.go('pk24', { game: 'pk24' });
+    runFrames(1);
+    var sc3 = BF.App.scenes.pk24;
+    sc3.initialVals = deal3.slice();
+    sc3.cards = sc3.buildTokens(deal3);
+    sc3.initial = sc3.cloneCards(sc3.cards);
+    sc3.history = []; sc3.solution = Gen.solve(deal3); sc3.win = null; sc3.selected = -1; sc3.pendingOp = null;
+    sc3.computeTokenRects();
+    var i3 = deal3.indexOf(3), i8 = deal3.indexOf(8), before3 = sc3.cards.length;
+    var c3 = cardCenter(sc3, i3), oDiv = opCenter(sc3, '÷'), c8 = cardCenter(sc3, i8);
+    tap(c3.x, c3.y); tap(oDiv.x, oDiv.y); tap(c8.x, c8.y);
+    check(sc3.cards.length === before3, '除不尽（3÷8）的合并不应改变牌数');
+    check(sc3.pendingOp === null, '除不尽后 pendingOp 应清零（保留选牌让用户换算法）');
+    check(!!sc3.toast && sc3.toast.text.indexOf('除不尽') >= 0, '除不尽应给出 toast 提示');
+  }
+
+  /* ---- 9h-4. 撤销 / 重置 / 提示 ---- */
+  BF.App.go('pk24', { game: 'pk24' });
+  runFrames(1);
+  var sc4 = BF.App.scenes.pk24;
+  var seq4 = Gen.solveSeq(sc4.initialVals.slice());
+  var a1 = cardCenter(sc4, seq4[0].i), o1 = opCenter(sc4, seq4[0].op), a2 = cardCenter(sc4, seq4[0].j);
+  tap(a1.x, a1.y); tap(o1.x, o1.y); tap(a2.x, a2.y);
+  check(sc4.cards.length === 3, '合并一步后应剩 3 张');
+  sc4.doAction('undo');
+  check(sc4.cards.length === 4 && sc4.history.length === 0, '撤销应恢复 4 张初始牌并清空历史');
+  tap(a1.x, a1.y); tap(o1.x, o1.y); tap(a2.x, a2.y);   // 再合并一步
+  sc4.elapsed = 12345;
+  sc4.doAction('reset');
+  check(sc4.cards.length === 4 && sc4.elapsed === 0, '重置应恢复 4 张且计时归零');
+  sc4.doAction('hint');
+  check(sc4.hintsUsed === 1 && !!sc4.hintExpr && sc4.hintExpr.indexOf('= 24') >= 0, '提示应给出「... = 24」的表达式并记 hintsUsed');
+
+  /* ---- 9h-5. 返回首页 ---- */
+  var bk = sc4.back;
+  tap(bk.x + bk.w / 2, bk.y + bk.h / 2);
+  runFrames(2);
+  check(BF.App.current === BF.App.scenes.home, '24点点返回应回首页');
+})();
+
+/* ---------- 9i. 猫猫方块（第 14 款）：固定 8 关闯关 + 真实点通 + 放错扣心 + 下一关 ---------- */
+(function () {
+  if (!BF.games.cat) { console.log('  ⚠ 未注册 cat，跳过'); return; }
+  var Gen = BF.CatGen;
+
+  /* ---- 9i-1. 进游戏：第 1 关 6×6，解位驱动真实点通 → 过关 + 存档 ---- */
+  BF.App.go('cat', { level: 1, game: 'cat' });
+  runFrames(2);
+  var sc = BF.App.scenes.cat;
+  check(BF.App.current === sc, '首页点猫猫方块应进入玩法场景');
+  check(sc.N === 6, '第 1 关应为 6×6，实际 ' + sc.N + '×' + sc.N);
+  check(!!sc.cellRects && sc.cellRects.length === sc.N, '应有棋盘命中盒');
+  // 把 6 个解位依次点出来
+  for (var k = 0; k < sc.N; k++) {
+    var s = sc.sol[k];
+    var r = sc.cellRects[s.r][s.c];
+    tap(r.x + r.w / 2, r.y + r.h / 2);
+    runFrames(1);
+  }
+  check(!!sc.win, '猫猫方块应能用解位驱动真实点通');
+  check(sc.count === sc.N, '通关时 6 只猫应全部放对，实际 ' + sc.count);
+  check(sc.win && sc.win.stars >= 1 && sc.win.stars <= 3, '星级应在 1~3');
+  check(BF.Save.clearedCount('cat') >= 1, '通关后 clearedCount 应 ≥1');
+  check(BF.Save.starsOf('cat', 1) >= 1, '应记录第 1 关星级');
+
+  /* ---- 9i-2. 「下一关」：进第 2 关（同样是 6×6），且不再弹规则 ---- */
+  var ob = sc.overlayLayout();
+  tap(ob.action.x + ob.action.w / 2, ob.action.y + ob.action.h / 2);
+  runFrames(2);
+  check(sc.level === 2, '点「下一关」应进第 2 关，实际 ' + sc.level);
+  check(sc.N === 6, '第 2 关仍为 6×6');
+  check(!sc.showRule, '关内「下一关」不应再弹规则说明');
+
+  /* ---- 9i-3. 放错扣心：放一只猫后点 ✕ 扣 1 颗心；3 心耗光 → 失败重玩 ---- */
+  BF.App.go('cat', { level: 1, game: 'cat' });
+  runFrames(2);
+  var sc2 = BF.App.scenes.cat;
+  var s0 = sc2.sol[0];
+  var c0 = sc2.cellRects[s0.r][s0.c];
+  tap(c0.x + c0.w / 2, c0.y + c0.h / 2);
+  runFrames(1);
+  check(sc2.count === 1, '放一只猫后 count 应为 1');
+  var xr = s0.r, xc = (s0.c + 1) % sc2.N;
+  var cx = sc2.cellRects[xr][xc];
+  tap(cx.x + cx.w / 2, cx.y + cx.h / 2);   // 点 ✕
+  runFrames(1);
+  check(sc2.hearts === 2, '点 ✕ 应扣 1 颗心（3→2），实际 ' + sc2.hearts);
+  // 连点 ✕ 耗光
+  tap(cx.x + cx.w / 2, cx.y + cx.h / 2);
+  tap(cx.x + cx.w / 2, cx.y + cx.h / 2);
+  runFrames(1);
+  check(sc2.hearts === 0, '连续点 ✕ 应把心耗光');
+  check(!!sc2.fail, '心耗光应进入失败覆盖层');
+  var fo = sc2.overlayLayout();
+  tap(fo.action.x + fo.action.w / 2, fo.action.y + fo.action.h / 2);
+  runFrames(2);
+  check(sc2.level === 1 && !sc2.fail && sc2.hearts === 3 && sc2.count === 0,
+    '失败「重新挑战」应留在第 1 关、清失败态、重置 3 心、清空猫');
+
+  /* ---- 9i-4. 拿走已放的猫（再点一次移除，不扣心） ---- */
+  BF.App.go('cat', { level: 1, game: 'cat' });
+  runFrames(2);
+  var sc3 = BF.App.scenes.cat;
+  var s1 = sc3.sol[1];
+  var c1 = sc3.cellRects[s1.r][s1.c];
+  var hBefore = sc3.hearts;
+  tap(c1.x + c1.w / 2, c1.y + c1.h / 2);   // 放
+  runFrames(1);
+  tap(c1.x + c1.w / 2, c1.y + c1.h / 2);   // 拿
+  runFrames(1);
+  check(sc3.count === 0, '再点已放猫应移除（count=0）');
+  check(sc3.hearts === hBefore, '拿走猫不应扣心');
+
+  console.log('   猫猫方块已验证：8 关闯关 / 第 1·2 关 6×6 / 解位驱动真实点通(6只全放对) / 过关存档 / 下一关(进第2关·不弹规则) / 放错扣心(点✕扣1心·3心耗光→失败重玩同关) / 再点已放猫可拿起');
+})();
+
+/* ---------- 9j. 盯红球（第 15 款）：固定 18 关闯关 + 多红球追踪 + 阶段机 + 真实点通 + 猜错扣心 + 下一关 ---------- */
+(function () {
+  if (!BF.games.redball) { console.log('  ⚠ 未注册 redball，跳过'); return; }
+
+  function pumpAnswer(s) {
+    var g = 0;
+    while (s.phase !== 'answer' && g < 600) { runFrames(1); g++; }
+    return s.phase === 'answer';
+  }
+  function tapAllReds(s) {
+    for (var i = 0; i < s.finalReds.length; i++) {
+      var cc = s.slotCenter(s.finalReds[i]);
+      tap(cc.x, cc.y); runFrames(1);
+    }
+  }
+
+  /* ---- 9j-1. 进游戏：第 1 关 6 球 1 红，泵过观察+洗牌进入作答，点齐 finalReds → 过关 + 存档 ---- */
+  BF.App.go('redball', { level: 1, game: 'redball' });
+  runFrames(2);
+  var sc = BF.App.scenes.redball;
+  check(BF.App.current === sc, '首页点盯红球应进入玩法场景');
+  check(sc.N === 6, '第 1 关应为 6 球，实际 ' + sc.N);
+  check(sc.redCount === 1, '第 1 关应为 1 红，实际 ' + sc.redCount);
+  check(!!sc.slots && sc.slots.length === sc.N, '应有球阵命中盒');
+  check(pumpAnswer(sc), '泵过观察+洗牌应进入作答期');
+  // 每颗红球都应被移动到与起点不同的槽位
+  for (var ri = 0; ri < sc.redCount; ri++) {
+    check(sc.finalReds[ri] !== sc.startReds[ri], '第 ' + (ri + 1) + ' 颗红球应被移动');
+  }
+  tapAllReds(sc);
+  check(!!sc.win, '盯红球应能用全部 finalReds 槽位驱动真实点通');
+  check(sc.win && sc.win.stars >= 1 && sc.win.stars <= 3, '星级应在 1~3');
+  check(BF.Save.clearedCount('redball') >= 1, '通关后 clearedCount 应 ≥1');
+  check(BF.Save.starsOf('redball', 1) >= 1, '应记录第 1 关星级');
+
+  /* ---- 9j-2. 「下一关」：进第 2 关（仍 6 球 1 红），且不再弹规则 ---- */
+  var ob = sc.overlayLayout();
+  tap(ob.action.x + ob.action.w / 2, ob.action.y + ob.action.h / 2);
+  runFrames(2);
+  check(sc.level === 2, '点「下一关」应进第 2 关，实际 ' + sc.level);
+  check(sc.N === 6, '第 2 关仍为 6 球（6→8 在更高关才升），实际 ' + sc.N);
+  check(!sc.showRule, '关内「下一关」不应再弹规则说明');
+
+  /* ---- 9j-2b. 难度渐进：球数 6→8(第5关)→10(第9关)，红球数 1→2(第10关)→3(第15关) ---- */
+  BF.App.go('redball', { level: 5, game: 'redball' });
+  runFrames(2);
+  check(BF.App.scenes.redball.N === 8, '第 5 关应升到 8 球，实际 ' + BF.App.scenes.redball.N);
+  BF.App.go('redball', { level: 9, game: 'redball' });
+  runFrames(2);
+  check(BF.App.scenes.redball.N === 10, '第 9 关应升到 10 球，实际 ' + BF.App.scenes.redball.N);
+  BF.App.go('redball', { level: 10, game: 'redball' });
+  runFrames(2);
+  check(BF.App.scenes.redball.redCount === 2, '第 10 关应引入 2 个红球，实际 ' + BF.App.scenes.redball.redCount);
+
+  /* ---- 9j-2c. 多红球真实点通：第 10 关（2 红）点齐 finalReds 必过关（导航前当场点通） ---- */
+  var scm = BF.App.scenes.redball;
+  check(pumpAnswer(scm), '第 10 关应进入作答期');
+  check(scm.redCount === 2, '第 10 关应 2 红');
+  tapAllReds(scm);
+  check(!!scm.win, '第 10 关点齐 2 颗 finalReds 应过关');
+
+  BF.App.go('redball', { level: 15, game: 'redball' });
+  runFrames(2);
+  check(BF.App.scenes.redball.redCount === 3, '第 15 关应升到 3 个红球，实际 ' + BF.App.scenes.redball.redCount);
+
+  /* ---- 9j-3. 猜错扣心：点非红球槽位扣 1 颗心；3 心耗光 → 失败重玩 ---- */
+  BF.App.go('redball', { level: 1, game: 'redball' });
+  runFrames(2);
+  var sc2 = BF.App.scenes.redball;
+  check(pumpAnswer(sc2), '第 1 关应进入作答期');
+  var wrongs = [];
+  for (var w = 0; w < sc2.N; w++) { if (sc2.finalReds.indexOf(w) < 0) { wrongs.push(w); } }
+  var wc = sc2.slotCenter(wrongs[0]);
+  tap(wc.x, wc.y);
+  runFrames(1);
+  check(sc2.hearts === 2, '猜错应扣 1 颗心（3→2），实际 ' + sc2.hearts);
+  check(sc2.mistakes === 1, '猜错应记 mistakes=1');
+  check(!sc2.win, '猜错不应过关');
+  // 连点错槽耗光
+  var wc2 = sc2.slotCenter(wrongs[1]); var wc3 = sc2.slotCenter(wrongs[2]);
+  tap(wc2.x, wc2.y); runFrames(1);
+  tap(wc3.x, wc3.y); runFrames(1);
+  check(sc2.hearts === 0, '连续猜错 3 次应把心耗光，实际 ' + sc2.hearts);
+  check(!!sc2.fail, '心耗光应进入失败覆盖层');
+  var fo = sc2.overlayLayout();
+  tap(fo.action.x + fo.action.w / 2, fo.action.y + fo.action.h / 2);
+  runFrames(2);
+  check(sc2.level === 1 && !sc2.fail && sc2.hearts === 3 && sc2.mistakes === 0,
+    '失败「重新挑战」应留在第 1 关、清失败态、重置 3 心、清零失误');
+
+  console.log('   盯红球已验证：18 关闯关 / 第1关6球·渐进至8(第5关)·10(第9关)·18球 / 红球数1→2(第10关)→3(第15关) / 观察→洗牌→作答阶段机 / 点齐全部finalReds真实点通(含2红关) / 过关存档 / 下一关(进第2关·不弹规则) / 猜错扣心(扣1心·记失误·3心耗光→失败重玩同关)');
+})();
+
+/* ---------- 9k. 盯蝌蚪（第 16 款）：固定 15 关闯关 + 标记追踪 + 自由漂移 + 多目标点通 + 猜错扣心 + 下一关 ---------- */
+(function () {
+  if (!BF.games.tadpole) { console.log('  ⚠ 未注册 tadpole，跳过'); return; }
+
+  function pumpAnswer(s) {
+    var g = 0;
+    while (s.phase !== 'answer' && g < 600) { runFrames(1); g++; }
+    return s.phase === 'answer';
+  }
+  function tapAllMarked(s) {
+    for (var i = 0; i < s.markedIds.length; i++) {
+      var p = s.posOf(s.markedIds[i], 1);
+      tap(p.x, p.y); runFrames(1);
+    }
+  }
+  function dist2(a, b) { var dx = a.sx - b.ex, dy = a.sy - b.ey; return Math.sqrt(dx * dx + dy * dy); }
+
+  /* ---- 9k-1. 进游戏：第 1 关 8 蝌蚪 2 标记，泵过观察+漂移进入作答，点齐被标记 → 过关 + 存档 ---- */
+  BF.App.go('tadpole', { level: 1, game: 'tadpole' });
+  runFrames(2);
+  var sc = BF.App.scenes.tadpole;
+  check(BF.App.current === sc, '首页点盯蝌蚪应进入玩法场景');
+  check(sc.N === 8, '第 1 关应为 8 蝌蚪，实际 ' + sc.N);
+  check(sc.markCount === 2, '第 1 关应被标记 2 只，实际 ' + sc.markCount);
+  check(pumpAnswer(sc), '泵过观察+游动倒计时应进入作答期');
+  // 倒计时结束后蝌蚪必须停下来：再泵 10 帧位置逐位不变
+  var pFrozen = sc.posOf(0);
+  runFrames(10);
+  var pFrozen2 = sc.posOf(0);
+  check(Math.abs(pFrozen.x - pFrozen2.x) < 1e-9 && Math.abs(pFrozen.y - pFrozen2.y) < 1e-9,
+    '作答期蝌蚪应停下来（倒计时结束后定格，不再游动）');
+  // 每只被标记蝌蚪都应被移动到与起点不同的位置（防送分）
+  for (var mi = 0; mi < sc.markedIds.length; mi++) {
+    var t = sc.tadpoles[sc.markedIds[mi]];
+    var d = Math.sqrt((t.ex - t.sx) * (t.ex - t.sx) + (t.ey - t.sy) * (t.ey - t.sy));
+    check(d >= BF.TadpoleGen.MIN_MOVE - 1e-9, '第 ' + (mi + 1) + ' 只被标记蝌蚪应被移动(位移=' + d.toFixed(3) + ')');
+  }
+  tapAllMarked(sc);
+  check(!!sc.win, '盯蝌蚪应能用全部被标记蝌蚪驱动真实点通');
+  check(sc.win && sc.win.stars >= 1 && sc.win.stars <= 3, '星级应在 1~3');
+  check(BF.Save.clearedCount('tadpole') >= 1, '通关后 clearedCount 应 ≥1');
+  check(BF.Save.starsOf('tadpole', 1) >= 1, '应记录第 1 关星级');
+
+  /* ---- 9k-2. 「下一关」：进第 2 关（仍 8 蝌蚪 2 标记），且不再弹规则 ---- */
+  var ob = sc.overlayLayout();
+  tap(ob.action.x + ob.action.w / 2, ob.action.y + ob.action.h / 2);
+  runFrames(2);
+  check(sc.level === 2, '点「下一关」应进第 2 关，实际 ' + sc.level);
+  check(sc.N === 9 && sc.markCount === 2, '第 2 关应为 9 蝌蚪 2 标记，实际 ' + sc.N + '/' + sc.markCount);
+  check(!sc.showRule, '关内「下一关」不应再弹规则说明');
+
+  /* ---- 9k-2b. 难度渐进：蝌蚪 8→12(第6关)→16(第11关)，被标记 2→3(第6关)→4(第11关) ---- */
+  BF.App.go('tadpole', { level: 6, game: 'tadpole' });
+  runFrames(2);
+  check(BF.App.scenes.tadpole.N === 12 && BF.App.scenes.tadpole.markCount === 3, '第 6 关应 12 蝌蚪 3 标记，实际 ' + BF.App.scenes.tadpole.N + '/' + BF.App.scenes.tadpole.markCount);
+  BF.App.go('tadpole', { level: 11, game: 'tadpole' });
+  runFrames(2);
+  check(BF.App.scenes.tadpole.N === 16 && BF.App.scenes.tadpole.markCount === 4, '第 11 关应 16 蝌蚪 4 标记，实际 ' + BF.App.scenes.tadpole.N + '/' + BF.App.scenes.tadpole.markCount);
+
+  /* ---- 9k-2c. 多目标真实点通：第 10 关（3 标记）点齐被标记必过关（导航前当场点通） ---- */
+  BF.App.go('tadpole', { level: 10, game: 'tadpole' });
+  runFrames(2);
+  var scm = BF.App.scenes.tadpole;
+  check(pumpAnswer(scm), '第 10 关应进入作答期');
+  check(scm.markCount === 3, '第 10 关应 3 标记');
+  tapAllMarked(scm);
+  check(!!scm.win, '第 10 关点齐 3 只被标记蝌蚪应过关');
+
+  BF.App.go('tadpole', { level: 15, game: 'tadpole' });
+  runFrames(2);
+  check(BF.App.scenes.tadpole.markCount === 4, '第 15 关应升到 4 只被标记，实际 ' + BF.App.scenes.tadpole.markCount);
+
+  /* ---- 9k-3. 猜错扣心：点干扰蝌蚪扣 1 颗心；3 心耗光 → 失败重玩 ---- */
+  BF.App.go('tadpole', { level: 1, game: 'tadpole' });
+  runFrames(2);
+  var sc2 = BF.App.scenes.tadpole;
+  check(pumpAnswer(sc2), '第 1 关应进入作答期');
+  var wrongs = [];
+  for (var w = 0; w < sc2.N; w++) { if (!sc2.tadpoles[w].marked) { wrongs.push(w); } }
+  var wp = sc2.posOf(wrongs[0], 1);
+  tap(wp.x, wp.y);
+  runFrames(1);
+  check(sc2.hearts === 2, '猜错应扣 1 颗心（3→2），实际 ' + sc2.hearts);
+  check(sc2.mistakes === 1, '猜错应记 mistakes=1');
+  check(!sc2.win, '猜错不应过关');
+  var wp2 = sc2.posOf(wrongs[1], 1), wp3 = sc2.posOf(wrongs[2], 1);
+  tap(wp2.x, wp2.y); runFrames(1);
+  tap(wp3.x, wp3.y); runFrames(1);
+  check(sc2.hearts === 0, '连续猜错 3 次应把心耗光，实际 ' + sc2.hearts);
+  check(!!sc2.fail, '心耗光应进入失败覆盖层');
+  var fo = sc2.overlayLayout();
+  tap(fo.action.x + fo.action.w / 2, fo.action.y + fo.action.h / 2);
+  runFrames(2);
+  check(sc2.level === 1 && !sc2.fail && sc2.hearts === 3 && sc2.mistakes === 0,
+    '失败「重新挑战」应留在第 1 关、清失败态、重置 3 心、清零失误');
+
+  console.log('   盯蝌蚪已验证：15 关闯关 / 第1关8蝌蚪·段内8→12(第5关)·第6关升3标记(N12→14)·16(第11关) / 被标记2→3(第6关)→4(第11关) / 观察(红圈)→游动倒计时→定格作答阶段机 / 倒计时结束后再泵10帧蝌蚪位置不变(停下来再选) / 每只被标记必移动(防送分) / 点齐全部被标记真实点通(含3标记关) / 过关存档 / 下一关(进第2关·不弹规则) / 猜错扣心(扣1心·记失误·3心耗光→失败重玩同关)');
+})();
+
+/* ---------- 9l. 瞬时记忆（第 17 款）：15 关看图记忆问答 + 选项判分 + 3 心 + 每日挑战 ---------- */
+(function () {
+  if (!BF.games.recall) { console.log('  ⚠ 未注册 recall，跳过'); return; }
+
+  function pumpQuiz(s) {
+    var g = 0;
+    while (s.phase !== 'quiz' && !s.win && !s.fail && g++ < 700) { runFrames(1); }
+    return s.phase === 'quiz';
+  }
+  /** 逐题按 answerIndex 真实点选项；reveal 期直接推进到下一题 */
+  function answerAll(s) {
+    var g = 0;
+    while (!s.win && !s.fail && g++ < 60) {
+      if (s.phase === 'quiz') {
+        var q = s.questions[s.qIndex];
+        var r = s.optRects[q.answerIndex];
+        tap(r.x + r.w / 2, r.y + r.h / 2);
+        runFrames(1);
+      } else {
+        s.revealT = 1; runFrames(1);
+      }
+    }
+  }
+
+  /* ---- 9l-1. 进游戏：第 1 关 6 物品 3 题，泵过观察收图，全对 → 过关 + 存档 ---- */
+  BF.App.go('recall', { level: 1, game: 'recall' });
+  runFrames(2);
+  var sc = BF.App.scenes.recall;
+  check(BF.App.current === sc, '首页点瞬时记忆应进入玩法场景');
+  check(sc.N === 6 && sc.M === 3, '第 1 关应 6 物品 3 题，实际 ' + sc.N + '/' + sc.M);
+  check(sc.phase === 'observe', '应从观察期开始');
+  check(sc.items.length === 6 && sc.questions.length === 3, '场景与题目应已生成');
+  check(pumpQuiz(sc), '泵过观察倒计时应收图进入答题期');
+  answerAll(sc);
+  check(!!sc.win, '按正确答案逐题点选应能真实点通');
+  check(sc.win && sc.win.stars === 3, '全对且未用提示应得 3 星');
+  check(sc.correctCount === sc.M, '答对数应等于题数');
+  check(BF.Save.clearedCount('recall') >= 1, '通关后 clearedCount 应 ≥1');
+  check(BF.Save.starsOf('recall', 1) === 3, '应记录第 1 关 3 星');
+
+  /* ---- 9l-2. 「下一关」进第 2 关，且不再弹规则 ---- */
+  tap(sc.overlayLayout().action.x + sc.overlayLayout().action.w / 2,
+      sc.overlayLayout().action.y + sc.overlayLayout().action.h / 2);
+  runFrames(2);
+  check(sc.level === 2, '点「下一关」应进第 2 关，实际 ' + sc.level);
+  check(!sc.showRule, '关内「下一关」不应再弹规则说明');
+
+  /* ---- 9l-3. 难度渐进：6/3 → 8/4（第6关） → 10/5（第11关） ---- */
+  BF.App.go('recall', { level: 6, game: 'recall' });
+  runFrames(2);
+  check(BF.App.scenes.recall.N === 8 && BF.App.scenes.recall.M === 4,
+    '第 6 关应 8 物品 4 题，实际 ' + BF.App.scenes.recall.N + '/' + BF.App.scenes.recall.M);
+  BF.App.go('recall', { level: 11, game: 'recall' });
+  runFrames(2);
+  check(BF.App.scenes.recall.N === 10 && BF.App.scenes.recall.M === 5,
+    '第 11 关应 10 物品 5 题，实际 ' + BF.App.scenes.recall.N + '/' + BF.App.scenes.recall.M);
+  check(BF.App.scenes.recall.questions[0].options.length <= 4, '困难档选项数 ≤4（不溢出）');
+
+  /* ---- 9l-4. 答错扣心 → 3 心耗光 → 失败重玩同关 ---- */
+  BF.App.go('recall', { level: 1, game: 'recall' });
+  runFrames(2);
+  var sc2 = BF.App.scenes.recall;
+  check(pumpQuiz(sc2), '扣心用例应进入答题期');
+  for (var e = 0; e < 3; e++) {
+    var q2 = sc2.questions[sc2.qIndex];
+    var wi = (q2.answerIndex + 1) % q2.options.length;
+    var wr = sc2.optRects[wi];
+    tap(wr.x + wr.w / 2, wr.y + wr.h / 2);
+    runFrames(1);
+    check(sc2.hearts === 2 - e, '第 ' + (e + 1) + ' 次答错应扣 1 心，实际 ' + sc2.hearts);
+    sc2.revealT = 1; runFrames(1);
+    if (sc2.fail) { break; }
+  }
+  check(!!sc2.fail, '3 心耗光应进入失败覆盖层');
+  var fo = sc2.overlayLayout();
+  tap(fo.action.x + fo.action.w / 2, fo.action.y + fo.action.h / 2);
+  runFrames(2);
+  check(sc2.level === 1 && !sc2.fail && sc2.hearts === 3 && sc2.mistakes === 0,
+    '失败「重新挑战」应留在第 1 关、清失败态、重置 3 心与失误');
+
+  /* ---- 9l-5. 每日挑战：走 buildDaily，通关写 clearDaily 且不污染普通关存档 ---- */
+  BF.Save.resetAll();
+  BF.App.go('recall', { level: 1, game: 'recall', daily: true });
+  runFrames(2);
+  var sc3 = BF.App.scenes.recall;
+  check(sc3.isDaily === true && sc3.N === 8 && sc3.M === 4, '每日挑战应为进阶档 N=8/M=4');
+  check(pumpQuiz(sc3), '每日挑战应能进入答题期');
+  answerAll(sc3);
+  check(!!sc3.win, '每日挑战应可通关');
+  check(BF.Save.isDailyDoneToday(), '每日通关应写 clearDaily');
+
+  console.log('   瞬时记忆已验证：15 关闯关 / 第1关6物品3题·第6关8物品4题·第11关10物品5题 / 观察→逐题选择→揭晓特写→结算状态机 / 按答案真实点通(全对3星) / 过关存档 / 下一关(不弹规则) / 答错扣心(3心耗光→失败重玩同关) / 每日挑战(全服同题·写clearDaily)');
 })();
 
 /* ---- 9g. 「玩法说明」弹框（BF.RuleTip，11 款共用） ----

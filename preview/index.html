@@ -152,6 +152,11 @@
 <script src="../js/game/sudoku.js"></script>
 <script src="../js/game/mine.js"></script>
 <script src="../js/game/picross.js"></script>
+<script src="../js/game/pk24.js"></script>
+<script src="../js/game/cat.js"></script>
+<script src="../js/game/redball.js"></script>
+<script src="../js/game/tadpole.js"></script>
+<script src="../js/game/recall.js"></script>
 <script src="../js/game/model.js"></script>
 <script src="../js/scenes/home.js"></script>
 <script src="../js/scenes/levels.js"></script>
@@ -166,12 +171,18 @@
 <script src="../js/scenes/sudoku.js"></script>
 <script src="../js/scenes/mine.js"></script>
 <script src="../js/scenes/picross.js"></script>
+<script src="../js/scenes/pk24.js"></script>
+<script src="../js/scenes/cat.js"></script>
+<script src="../js/scenes/redball.js"></script>
+<script src="../js/scenes/tadpole.js"></script>
+<script src="../js/scenes/recall.js"></script>
 <script src="../js/app.js"></script>
 <script>
   // 图片资源在"包根"的 assets/ 下；本页在 preview/ 子目录里，
   // 不指回项目根的话会把 assets/photo/xxx.jpg 解析成 preview/assets/... 而 404。
   if (BF.Photos) { BF.Photos.base = '../'; }
   if (BF.Diffs) { BF.Diffs.base = '../'; }
+  if (BF.RecallImgs) { BF.RecallImgs.base = '../'; }
 
   document.getElementById('unlock').onclick = function () {
     BF.Save.bucket('block').unlocked = BF.Levels.TOTAL;

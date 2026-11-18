@@ -438,6 +438,29 @@
       ctx.lineTo(cx, cy + s * 0.02);
       ctx.lineTo(cx + s * 0.24, cy + s * 0.16);
       ctx.stroke();
+    } else if (name === 'rewind') {
+      // 两条左向实心三角（⏪ 倒放）
+      for (var tri = 0; tri < 2; tri++) {
+        var ox = cx + s * (0.30 - tri * 0.42);
+        ctx.beginPath();
+        ctx.moveTo(ox + s * 0.18, cy - s * 0.40);
+        ctx.lineTo(ox - s * 0.20, cy);
+        ctx.lineTo(ox + s * 0.18, cy + s * 0.40);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (name === 'mark') {
+      // 小旗：左竖杆 + 右向三角旗（标记）
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.26, cy - s * 0.46);
+      ctx.lineTo(cx - s * 0.26, cy + s * 0.50);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - s * 0.20, cy - s * 0.42);
+      ctx.lineTo(cx + s * 0.40, cy - s * 0.16);
+      ctx.lineTo(cx - s * 0.20, cy + s * 0.08);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.restore();
   }

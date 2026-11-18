@@ -126,16 +126,16 @@
   /**
    * 求解器只能看到**本关实际给出的那些信息**——这一点是难度结论成立的前提，
    * 所以比较键必须严格按 hint 走，绝不能一律用聚合计数、也不能一律用逐格：
-   *   'line' / 'dot' 关 → 逐格提示：'full' 看到每格 2/1/0，'exact' 只看到"哪几格对了"（其余 -1）
+   *   'line' / 'dot' 关 → 逐格提示：每格都给全 2/1/0（绿/白/黑）
    *   'agg' 关          → 数量提示：只看到"几个位置对 / 几个换位 / 几个排除"，**不说是哪一格**
-   * 用同一份 revealHint()/feedback()（数据层函数），保证"玩家看到的"与"求解器看到的"是同一份。
+   * 用同一份 lineHint()/feedback()（数据层函数），保证"玩家看到的"与"求解器看到的"是同一份。
    */
   function infoKey(g, code, cfg) {
     if (cfg.hint === 'agg') {
       var fb = Gen.feedback(g, code);
       return fb.exact + '/' + fb.color + '/' + fb.miss;
     }
-    return Gen.revealHint(g, code, cfg.info).join(',');
+    return Gen.lineHint(g, code).join(',');
   }
 
   /**
@@ -396,10 +396,10 @@
   var sc7c = new Scene(app); sc7c.enter({ level: 5, game: 'cipher' });
   sc7c.render(ctx);
   var rows7 = sc7c.rows.length, edit7 = sc7c.edit.join(',');
-  // 图例项数随信息量变（'full' 关 3 项 / 'exact' 关 2 项）——按实际项数点，别写死
+  // 图例恒为三档（位置对/换位/排除）——按实际项数点，别写死
   for (var li7 = 0; li7 < sc7c.legendRects.length; li7++) { legendTap(sc7c, li7); }
-  if (sc7c.cfg.info === 'exact' && sc7c.legendRects.length !== 2) {
-    issues.push('exact 关图例应只有"位置对/不告诉你"两项');
+  if (sc7c.legendRects.length !== 3) {
+    issues.push('图例应有"位置对/换位/排除"三项，实际 ' + sc7c.legendRects.length);
   }
   if (sc7c.rows.length !== rows7 || sc7c.edit.join(',') !== edit7) {
     issues.push('查看图例说明不应改动棋盘/编辑行');
@@ -497,8 +497,8 @@
     else {
       for (i8 = 0; i8 < r0.line.length; i8++) {
         var kv = r0.line[i8];
-        // -1 = 本关不告诉你（'exact' 关），合法取值之一
-        if (kv !== 0 && kv !== 1 && kv !== 2 && kv !== -1) { issues.push('L' + n + ' 逐格反馈取值应为 0/1/2/-1'); break; }
+        // 逐格提示三档全给：0=排除 / 1=换位 / 2=位置对，没有留空值
+        if (kv !== 0 && kv !== 1 && kv !== 2) { issues.push('L' + n + ' 逐格反馈取值应为 0/1/2'); break; }
       }
     }
     if (!r0 || r0.fb.exact + r0.fb.color + r0.fb.miss !== sc8.cfg.slots) {
@@ -511,7 +511,7 @@
       issues.push('L' + n + ' 点阵数据与聚合反馈不一致（个数/顺序不符）');
     }
 
-    // ---- 标记数：**每一格都必须有反馈**（含"不告诉你"的灰虚位），绝不能留空 ----
+    // ---- 标记数：**每一格都必须有反馈**，绝不能留空 ----
     var rep8 = marksOf(sc8);
     if (rep8.err) { issues.push('L' + n + ' 反馈 render 抛错: ' + rep8.err.message); }
     if (agg8) {
@@ -525,12 +525,12 @@
       if (rep8.dotsCalls !== 0) { issues.push('L' + n + ' 逐格提示关不该画右侧点阵'); }
       var marks8 = sc8.cfg.hint === 'dot' ? rep8.dotsUnder : rep8.lines;
       if (marks8 !== sc8.cfg.slots) {
-        issues.push('L' + n + ' 提交行应逐格都有反馈标记（含"不告诉你"），实际 ' + marks8 + '/' + sc8.cfg.slots);
+        issues.push('L' + n + ' 提交行应逐格都有反馈标记，实际 ' + marks8 + '/' + sc8.cfg.slots);
       }
     }
 
     // ---- 极端情况：整行一个位置都没猜中，反馈同样不能留空 ----
-    //（循环移位：密码颜色互异 ⇒ 每格都错。exact 关会画满灰虚位，agg 关会画满白点）
+    //（循环移位：密码颜色互异 ⇒ 每格都错。逐格关会画满黑标记，agg 关会画满白点）
     var sc8b = new Scene(app); sc8b.enter({ level: n, game: 'cipher' });
     sc8b.edit = sc8b.code.slice(1).concat(sc8b.code[0]);
     sc8b.submit();
@@ -558,7 +558,7 @@
     for (var i = 0; i < issues.length; i++) { console.error('  - ' + issues[i]); }
     process.exit(1);
   }
-  console.log('✅ 密码推理 · 交互逻辑全过（选色/**任意点格选位**/跳位填/原地替换/拼行/提交/反馈/撤销/清空/取下(原地)/重复色禁止/过关/失败/图例点按·长按·收起（项数随信息量 3/2）/**反馈位置随提示模式分流：逐格下方（格子列居中）↔ 行右侧数量点阵（格子列左移）**/两种形状+数量点阵渲染 · 几何不溢出）');
+  console.log('✅ 密码推理 · 交互逻辑全过（选色/**任意点格选位**/跳位填/原地替换/拼行/提交/反馈/撤销/清空/取下(原地)/重复色禁止/过关/失败/图例点按·长按·收起（恒 3 项：位置对/换位/排除）/**反馈位置随提示模式分流：逐格下方（格子列居中）↔ 行右侧数量点阵（格子列左移）**/两种形状+数量点阵渲染 · 几何不溢出）');
   console.log('   求解器表现（严格按本关**玩家可见**的信息推理）: ' + solveLog.join('  '));
   console.log('   换题抽查（同一参数换几道题，验证能解不是碰巧）: ' + sampleLog.join('  '));
   console.log('   动态星级线 3★/2★（次）: ' + seq.join('  '));

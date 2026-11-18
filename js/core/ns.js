@@ -35,6 +35,7 @@
   function lerp(a, b, t) { return a + (b - a) * t; }
   function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
   function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+  function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
   function hexToRgb(hex) {
     var h = String(hex).replace('#', '');
@@ -86,6 +87,7 @@
     lerp: lerp,
     easeOutCubic: easeOutCubic,
     easeInOutQuad: easeInOutQuad,
+    easeInOutCubic: easeInOutCubic,
     hexToRgb: hexToRgb,
     shade: shade,
     rgba: rgba,

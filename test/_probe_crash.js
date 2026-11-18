@@ -139,21 +139,23 @@ function runScreen(W, H, dpr, label) {
   frames(3);
 
   /* --- 首页卡片排版：每张卡的文案必须落在卡片内 ---
-     窄屏/矮屏最容易压塌：iPhone 8（375×667）上 11 张卡把高度压到 36px，
-     而标题固定 17px → 文字顶出卡片（真机截图放大后才发现）。
-     现在字号随卡片高度缩放 + 装不下就整页可滚动，这里逐设备守住。 */
+     窄屏/矮屏最容易压塌：iPhone 8（375×667）上卡片高度被压缩，
+     标题字号随卡片高度缩放 + 装不下就整页可滚动，这里逐设备守住。
+     首页重写为「三大类两列网格」后：cards2 = 当前可见卡（含几何），
+     cardInternals(x,y,w,h) = 图标/文案/进度条的几何（替代旧 cardTextLayout）。 */
   {
     const hs = App.current;
-    if (!hs || !hs.cards || !hs.cardTextLayout) { errs.push(label + ' 首页没起来'); }
-    else {
+    if (!hs || !hs.cards2 || !hs.cards2.length || typeof hs.cardInternals !== 'function') {
+      errs.push(label + ' 首页没起来');
+    } else {
       if (hs.minScroll > 0) { errs.push(label + ' 首页 minScroll 为正'); }
       const need = hs.contentH > hs.viewH + 0.5;
       if (need && hs.minScroll >= 0) { errs.push(label + ' 首页一屏装不下却没开滚动'); }
       if (!need && hs.minScroll !== 0) { errs.push(label + ' 首页装得下却开了滚动'); }
-      for (let i = 0; i < hs.cards.length; i++) {
-        const c = hs.cards[i];
-        const g = hs.cardTextLayout({ x: c.x, y: c.y, w: c.w, h: c.h });
-        if (g.top < c.y - 0.6 || g.top + g.blockH > c.y + c.h + 0.6) {
+      for (let i = 0; i < hs.cards2.length; i++) {
+        const c = hs.cards2[i];
+        const g = hs.cardInternals(c.x, c.y, c.w, c.h);
+        if (g.blockTop < c.y - 0.6 || g.blockBottom > c.y + c.h + 0.6) {
           errs.push(label + ' 首页卡片「' + c.title + '」文案溢出卡片');
         }
         if (hs.estTextWidth(c.title, g.titleSize) > g.textMax) {

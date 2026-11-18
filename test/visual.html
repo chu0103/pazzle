@@ -63,10 +63,20 @@
 <script src="../js/game/sudoku.js"></script>
 <script src="../js/game/mine.js"></script>
 <script src="../js/game/picross.js"></script>
+<script src="../js/game/pk24.js"></script>
+<script src="../js/game/cat.js"></script>
+<script src="../js/game/redball.js"></script>
+<script src="../js/game/tadpole.js"></script>
+<script src="../js/game/recall.js"></script>
 <script src="../js/scenes/blocks.js"></script>
 <script src="../js/scenes/sudoku.js"></script>
 <script src="../js/scenes/mine.js"></script>
 <script src="../js/scenes/picross.js"></script>
+<script src="../js/scenes/pk24.js"></script>
+<script src="../js/scenes/cat.js"></script>
+<script src="../js/scenes/redball.js"></script>
+<script src="../js/scenes/tadpole.js"></script>
+<script src="../js/scenes/recall.js"></script>
 <script src="../js/app.js"></script>
 <script>
 (function () {
@@ -588,10 +598,10 @@
       }
       sc.render(BF.platform.ctx);
     }],
-    ['㊼ 密码推理 · 终关（逐格圆点）提交后（绿圈=位置对 / 灰圈=不对但不告诉你）', function () {
-      BF.App.go('cipher', { level: 7, game: 'cipher' });
+    ['㊼ 密码推理 · 段 1 终关（第 6 关 6 位 7 色）提交后（每格都给全 绿/白/黑）', function () {
+      BF.App.go('cipher', { level: 6, game: 'cipher' });
     }, function (sc) {
-      // 提交一行错位的猜测：绝大多数格子会画成空心灰圈（'exact' 关不给"换位/排除"）
+      // 提交一行顺序猜测：各格正下方画出绿/白/黑圆点——位置对/换位/排除三档全给，没有留空
       var i;
       for (i = 0; i < sc.cfg.slots; i++) {
         sc.onDown(sc.palettes[i].x + 4, sc.palettes[i].y + 4);
@@ -1000,6 +1010,46 @@
       sc.ruleNoTip = true;           // 勾选态
       sc.ruleAnim = 1;
       sc.render(BF.platform.ctx);
+    }],
+
+    /* ---------------- 游戏 17「瞬时记忆」（追加在末尾，不打乱 86 张老快照的序号） ----------------
+       注意：上面两张弹框快照把 BF.RuleTip.on 打开了，且不会自动复原，
+       所以本组每张 setup 都必须显式关掉，否则会拍到规则弹框。 */
+    ['🧠 瞬时记忆 · 第 11 关观察期（10 件物品场景卡 + 白色倒计时环 + 进度条）', function () {
+      freshSave();
+      BF.RuleTip.on = false;
+      BF.App.go('recall', { level: 11, game: 'recall' });
+    }],
+    ['🧠 瞬时记忆 · 答题期（收图黑底大 ? + 第 1/5 题 + 4 选项 + 黄色倒计时环）', function () {
+      freshSave();
+      BF.RuleTip.on = false;
+      BF.App.go('recall', { level: 11, game: 'recall' });
+      BF.App.scenes.recall.startQuiz();
+    }],
+    ['🧠 瞬时记忆 · 揭晓期（答对 + 目标物品放大特写 + 正确答案）', function () {
+      freshSave();
+      BF.RuleTip.on = false;
+      BF.App.go('recall', { level: 11, game: 'recall' });
+      var sc = BF.App.scenes.recall;
+      sc.startQuiz();
+      sc.answer(sc.questions[0].answerIndex);
+    }],
+    ['🧠 瞬时记忆 · 通关结算（3 星 + 答对 5/5 + 用时）', function () {
+      freshSave();
+      BF.RuleTip.on = false;
+      BF.App.go('recall', { level: 11, game: 'recall' });
+      var sc = BF.App.scenes.recall;
+      sc.correctCount = sc.M;
+      sc.elapsed = 21300;
+      sc.onSolved();
+    }],
+    ['🧠 瞬时记忆 · 规则弹框（首进第 1 关，「开始游戏」+ 5 条规则 + 不再提示）', function () {
+      freshSave();
+      BF.RuleTip.on = true;
+      BF.App.go('recall', { level: 1, game: 'recall' });
+    }, function (sc) {
+      sc.ruleAnim = 1;
+      sc.render(BF.platform.ctx);
     }]
   ];
 
@@ -1016,6 +1066,7 @@
     }
     if (BF.Photos) { BF.Photos.base = '../'; }
     if (BF.Diffs) { BF.Diffs.base = '../'; }   // 本页在 test/ 子目录里，指回项目根
+  if (BF.RecallImgs) { BF.RecallImgs.base = '../'; }
 
     var jobs = [];
     if (BF.Photos && !BF.Photos.blocked && BF.PHOTO_ASSETS) {

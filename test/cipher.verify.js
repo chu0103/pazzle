@@ -1,7 +1,8 @@
 /**
  * cipher.verify.js —— 密码推理 数据层自检
  * 用 node 直接加载生成器（不需要 canvas / 平台层），断言全部关卡：
- *   - 配置合法（slots/colors/tries/hint/info 与 LEVELS 一致，颜色数 ≥ 位数且不超调色板）
+ *   - 配置合法（slots/colors/tries/hint 与 LEVELS 一致，颜色数 ≥ 位数且不超调色板；
+ *               废弃的 info 字段不得再出现——反馈恒为三档全给）
  *   - 密码合法（位数对、颜色互不重复、且都在本关可用颜色里）
  *   - 可用颜色合法（数量对、互不重复、都在调色板范围内）
  *   - 确定性（同一关永远同一题）
@@ -125,12 +126,9 @@
     if (pz.tries !== cfg.tries) { issues.push('L' + n + ' tries 不一致'); }
     if (pz.hint !== cfg.hint) { issues.push('L' + n + ' hint 不一致'); }
     if (['line', 'dot', 'agg'].indexOf(cfg.hint) < 0) { issues.push('L' + n + ' hint 非法: ' + cfg.hint); }
-    if (['full', 'exact'].indexOf(cfg.info) < 0) { issues.push('L' + n + ' info 非法: ' + cfg.info); }
+    if (cfg.info !== undefined) { issues.push('L' + n + ' info 字段已废弃（反馈恒三档全给），不该再出现'); }
     if (cfg.colors < cfg.slots) { issues.push('L' + n + ' 可用颜色数 < 位数，密码取不出'); }
     if (cfg.colors > P) { issues.push('L' + n + ' 颜色数超过调色板容量'); }
-    if (cfg.hint === 'agg' && cfg.info === 'exact') {
-      issues.push('L' + n + ' 数量提示本来就只给个数，再叠"只标对位"没有意义');
-    }
 
     // 密码
     if (pz.code.length !== cfg.slots) { issues.push('L' + n + ' 密码位数错'); }

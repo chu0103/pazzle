@@ -7,12 +7,11 @@
  *   3) 猜测板：tries 行（默认 7 行）
  *        已提交的行 → 本行颜色 + 反馈。反馈画在哪里由本关**提示模式 hint** 决定：
  *        　　'line' 划线 / 'dot' 圆点 → **每格正下方**一条线 / 一个点（能看出是哪一格）；
- *        　　　　　　　 其中再按**信息量 info** 裁剪：'full' 关三色全给，
- *        　　　　　　　 'exact' 关（L5~L7）只画"位置对"的绿，其余格子下方留空（画灰色虚位）。
- *        　　'agg'  数量 → **每行右侧**一个点阵（绿/白/黑各几个），不说是哪一格（L8~L10）。
+ *        　　　　　　　 每格都给全 绿/白/黑 三档，玩家能直接排除颜色、定位换位；
+ *        　　'agg'  数量 → **每行右侧**一个点阵（绿/白/黑各几个），不说是哪一格（L7~L10）。
  *        当前编辑行 → 已填的颜色 + 空槽（下一个空槽有主色描边提示）
  *        未来的行   → 灰色空槽
- *   4) 图例：**可点按 / 长按**的胶囊，说明各档反馈代表什么（"不告诉你"也是一档）
+ *   4) 图例：**可点按 / 长按**的胶囊，说明绿/白/黑三档反馈分别代表什么
  *        （两种提示模式的小样形状同步：划线关画线、圆点关画点）；
  *        点按或长按任一项 → 上方浮出说明气泡（含义 + 本关用的哪种提示），
  *        再点同一项、点气泡任意处、或 4.2 秒后自动收起。
@@ -44,14 +43,7 @@
   var LEGEND = {
     2: { label: '位置对', desc: '这一格的颜色猜对了，位置也对。\n后面就别再挪它，锁住就行。' },
     1: { label: '换位', desc: '这个颜色确实在密码里，但放错格子了。\n记住它，换到别的位置再试。' },
-    0: { label: '排除', desc: '这个颜色根本不在密码里。\n后面几行可以直接不用它。' },
-    // 后段关卡（info='exact'）专用：错误的格子下面什么都不画
-    '-1': {
-      label: '不告诉你',
-      desc: '这一格是错的，但本关不告诉你错在哪：\n'
-          + '可能是"颜色在密码里、放错了位置"，也可能是"颜色根本不在密码里"。\n'
-          + '得拿其它格子交叉推理，才能把这两种情况分开。'
-    }
+    0: { label: '排除', desc: '这个颜色根本不在密码里。\n后面几行可以直接不用它。' }
   };
   /** 长按判定阈值（ms）：按住图例超过这么久就弹说明，不必等抬手 */
   var LONG_PRESS = 450;
@@ -89,8 +81,7 @@
       slots: this.puzzle.slots,
       colors: this.puzzle.colors,
       tries: this.puzzle.tries,
-      hint: this.puzzle.hint,
-      info: this.puzzle.info          // 'full' 全给 / 'exact' 只标"位置对"
+      hint: this.puzzle.hint
     };
     this.palette = this.puzzle.palette;
     this.usable = this.puzzle.usable.slice();
@@ -111,12 +102,10 @@
     this.t = 0;
 
     this.layout();
-    // 后段关卡反馈被裁掉了一档 / 换了位置，开局必须说清楚，否则玩家会以为提示坏了
+    // 数量提示关反馈换到了行右侧，开局必须说清楚，否则玩家会以为提示坏了
     this.showToast(this.cfg.hint === 'agg'
       ? '反馈在右侧，只给各状态的数量 · 点格子选位再填色'
-      : (this.cfg.info === 'exact'
-         ? '本关只告诉你哪几格对了 · 点格子选位再填色'
-         : '点格子选位置，再点颜色填入'));
+      : '点格子选位置，再点颜色填入');
     // 「玩法说明」弹框：每次进这款游戏的第一个关卡时弹一次（勾过「不再提示」则不弹）
     if (BF.RuleTip.shouldShow(this.game, this)) { BF.RuleTip.enter(this, params); }
     return this;
@@ -445,8 +434,8 @@
     if (!this.editFull()) { this.showToast('密码还没填满'); return; }
     var guess = this.edit.slice();
     var fb = BF.CipherGen.feedback(guess, this.code);
-    // 逐格提示按本关信息量裁剪（'exact' 关只留"位置对"，其余格子下方留空）
-    var line = BF.CipherGen.revealHint(guess, this.code, this.cfg.info);
+    // 逐格提示：每格 2=绿 / 1=白 / 0=黑 全给（'agg' 关不用这份，用右侧点阵）
+    var line = BF.CipherGen.lineHint(guess, this.code);
     this.rows.push({ guess: guess, fb: fb, line: line });
     this.edit = new Array(this.cfg.slots).fill(-1);
     this.cellSel = -1;          // 新的一行从头开始，光标不残留上一行的位置
@@ -546,9 +535,8 @@
   };
 
   SceneCipher.prototype.hintName = function () {
-    var shape = this.cfg.hint === 'agg' ? '数量提示'
-              : (this.cfg.hint === 'line' ? '划线提示' : '圆点提示');
-    return this.cfg.info === 'exact' ? (shape + ' · 只标对位') : shape;
+    return this.cfg.hint === 'agg' ? '数量提示'
+         : (this.cfg.hint === 'line' ? '划线提示' : '圆点提示');
   };
 
   /** 密码条：游戏中全是灰「?」，破译成功 / 机会用完才揭示 */
@@ -603,7 +591,7 @@
         var cr = this.cellRect(r, i);
         if (submitted) {
           this.drawChip(ctx, cr, this.palette[this.rows[r].guess[i]].hex, {});
-          // 2 绿 / 1 白 / 0 黑 / -1 = 本关不告诉你（'exact' 关）→ 画灰色虚位，绝不留空
+          // 2 绿 / 1 白 / 0 黑（三档全给，绝不留空）
           if (cfg.hint === 'line') { this.drawLine(ctx, cr, this.rows[r].line[i]); }
         } else if (isEdit) {
           var sel = (this.cellSel === i);
@@ -623,8 +611,7 @@
 
       // 圆点提示：也是"每格正下方"的一个点（和划线同位置、同含义，只是形状不同）——
       // 玩家抬头就能对上"这个颜色下面的点是什么颜色"，不用再去行右侧数汇总。
-      // 注意：'-1'（本关不告诉你）同样要画（空心灰圈），否则 exact 关一旦整行没猜中
-      // 就是一排空白，玩家分不清"提交成功但全错"和"提交没生效"。
+      // 整行全错时每格都是黑点，绝不会出现空白，玩家分得清"提交成功但全错"。
       if (cfg.hint === 'dot' && submitted) {
         for (i = 0; i < cfg.slots; i++) {
           this.drawDotUnder(ctx, this.cellRect(r, i), this.rows[r].line[i]);
@@ -653,13 +640,9 @@
   SceneCipher.prototype.renderLegend = function (ctx) {
     var W = BF.platform.width;
     var line = this.cfg.hint === 'line';
-    // 信息量决定图例有几项：'full' 关三种反馈都说；'exact' 关只说"位置对"，
-    // 剩下的合并成一项「不告诉你」，免得玩家照着不存在的提示去找
-    var items = this.cfg.info === 'exact'
-      ? [{ kind: 2, label: LEGEND[2].label }, { kind: -1, label: LEGEND['-1'].label }]
-      : [{ kind: 2, label: LEGEND[2].label },
-         { kind: 1, label: LEGEND[1].label },
-         { kind: 0, label: LEGEND[0].label }];
+    var items = [{ kind: 2, label: LEGEND[2].label },
+                 { kind: 1, label: LEGEND[1].label },
+                 { kind: 0, label: LEGEND[0].label }];
     var padX = 7, gap = 10, i;
     var innerW = [], total = 0;
 
@@ -695,21 +678,7 @@
       ctx.restore();
 
       var sx = x + padX;
-      if (it.kind < 0) {
-        // "不告诉你"：画一个灰色的空槽（虚线 / 空心圈），表示"这里有反馈但被抹掉了"
-        ctx.save();
-        ctx.strokeStyle = open ? 'rgba(255,255,255,0.85)' : 'rgba(23,26,31,0.32)';
-        ctx.lineWidth = 1.2;
-        if (line) {
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.moveTo(sx, cy); ctx.lineTo(sx + 18, cy); ctx.stroke();
-          ctx.setLineDash([]);
-        } else {
-          ctx.beginPath(); ctx.arc(sx + 9, cy, 4.2, 0, Math.PI * 2); ctx.stroke();
-        }
-        ctx.restore();
-      } else if (line) {
+      if (line) {
         var lw = 18, lh = 5;
         D.fillRound(ctx, sx, cy - lh / 2, lw, lh, lh / 2, this.fbColor(it.kind));
         if (it.kind === 1) {
@@ -821,27 +790,19 @@
   };
 
   /**
-   * 一个圆点：绿=位置对 / 白=颜色对位置错 / 黑=颜色不在密码里 /
-   * **空心灰圈 = 本关不告诉你**（'exact' 关：这格不对，但不说错在"换位"还是"排除"）。
-   * 空心圈必须画出来而不是留空——留空会和"没提交成功"看起来一模一样。
+   * 一个圆点：绿=位置对 / 白=颜色对位置错 / 黑=颜色不在密码里。
+   * 三档都会画出来（绝不留空）——留空会和"没提交成功"看起来一模一样。
    */
   SceneCipher.prototype.drawDot = function (ctx, x, y, r, kind) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(x, y, kind < 0 ? r * 0.92 : r, 0, Math.PI * 2);
-    if (kind < 0) {
-      // 「不告诉你」：空心灰圈。棋盘上比图例小样再实一点（主视觉区域，淡了会被当成"没提示"）
-      ctx.strokeStyle = 'rgba(23,26,31,0.42)';
-      ctx.lineWidth = 1.5;
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = this.fbColor(kind);
+    ctx.fill();
+    if (kind === 1) {
+      ctx.strokeStyle = 'rgba(23,26,31,0.30)';
+      ctx.lineWidth = 1;
       ctx.stroke();
-    } else {
-      ctx.fillStyle = this.fbColor(kind);
-      ctx.fill();
-      if (kind === 1) {
-        ctx.strokeStyle = 'rgba(23,26,31,0.30)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
     }
     ctx.restore();
   };
@@ -883,24 +844,12 @@
     }
   };
 
-  /** 划线提示：格子下方一条线（kind < 0 = 本关不告诉你 → 浅灰虚线，同样不能留空） */
+  /** 划线提示：格子下方一条线（绿=位置对 / 白=换位 / 黑=排除，三档全给、绝不留空） */
   SceneCipher.prototype.drawLine = function (ctx, cr, kind) {
     var lw = cr.w * 0.86;
     var lh = Math.max(3, cr.w * 0.10);
     var x = cr.x + (cr.w - lw) / 2;
     var y = cr.y + cr.h + Math.max(2.5, cr.w * 0.09);
-    if (kind < 0) {
-      ctx.save();
-      ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = 'rgba(23,26,31,0.30)';
-      ctx.lineWidth = Math.max(1.2, lh * 0.45);
-      ctx.beginPath();
-      ctx.moveTo(x + 1, y + lh / 2);
-      ctx.lineTo(x + lw - 1, y + lh / 2);
-      ctx.stroke();
-      ctx.restore();
-      return;
-    }
     D.fillRound(ctx, x, y, lw, lh, lh / 2, this.fbColor(kind));
     if (kind === 1) {
       ctx.save();

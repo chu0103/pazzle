@@ -1,0 +1,11 @@
+<!DOCTYPE html><html><body>
+<canvas id="c" width="200" height="100"></canvas>
+<div id="out">init</div>
+<script>
+var n=0;
+var ctx=document.getElementById('c').getContext('2d');
+function loop(){ n++; ctx.fillStyle='#3E6FBF'; ctx.fillRect(0,0,20*n,40);
+  document.getElementById('out').textContent='raf fired: '+n; requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+setTimeout(function(){ document.getElementById('out').textContent='raf fired: '+n+' | timeout ok'; }, 1500);
+</script></body></html>

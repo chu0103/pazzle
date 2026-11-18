@@ -19,7 +19,8 @@
   window.addEventListener('error', function (e) {
     var el = document.getElementById('err');
     el.style.display = 'block';
-    el.textContent += (e.message || 'error') + '\n' + (e.filename || '').split('/').pop() + ':' + e.lineno + '\n';
+    var stack = (e.error && e.error.stack) ? e.error.stack : '';
+    el.textContent += (e.message || 'error') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno + '\n' + stack.split('\n').slice(0, 6).join('\n') + '\n';
   });
   window.addEventListener('unhandledrejection', function (e) {
     var el = document.getElementById('err');
@@ -46,6 +47,11 @@
 <script src="../js/game/sudoku.js"></script>
 <script src="../js/game/mine.js"></script>
 <script src="../js/game/picross.js"></script>
+<script src="../js/game/pk24.js"></script>
+<script src="../js/game/cat.js"></script>
+<script src="../js/game/redball.js"></script>
+<script src="../js/game/tadpole.js"></script>
+<script src="../js/game/recall.js"></script>
 <script src="../js/game/model.js"></script>
 <script src="../js/scenes/home.js"></script>
 <script src="../js/scenes/levels.js"></script>
@@ -60,6 +66,11 @@
 <script src="../js/scenes/sudoku.js"></script>
 <script src="../js/scenes/mine.js"></script>
 <script src="../js/scenes/picross.js"></script>
+<script src="../js/scenes/pk24.js"></script>
+<script src="../js/scenes/cat.js"></script>
+<script src="../js/scenes/redball.js"></script>
+<script src="../js/scenes/tadpole.js"></script>
+<script src="../js/scenes/recall.js"></script>
 <script src="../js/app.js"></script>
 <script>
   var q = {}; (location.search || '').replace(/^\?/, '').split('&').forEach(function (kv) {
@@ -67,6 +78,7 @@
   });
   if (BF.Photos) { BF.Photos.base = '../'; }
   if (BF.Diffs) { BF.Diffs.base = '../'; }
+  if (BF.RecallImgs) { BF.RecallImgs.base = '../'; }
 
   var diag = document.getElementById('err');
   function pump(frames) {
@@ -82,6 +94,34 @@
     var game = q.game || 'sudoku';
     var level = parseInt(q.level || '1', 10);
     var pick = q.pickDiff === '1';
+    var PF = q.frames ? parseInt(q.frames, 10) : 150;
+    if (q.home === '1') {
+      try { BF.App.go('home');       } catch (e) {
+        diag.style.display = 'block';
+        diag.textContent += 'NAV ERROR home: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0,4).join('\n') + '\n';
+        return;
+      }
+      if (q.chip && q.chip !== 'all') {
+        var hh = BF.App.current;
+        if (hh && hh.setChip) {
+          var ids = ['all', 'brain', 'hand', 'eye'];
+          hh.setChip(ids.indexOf(q.chip));
+        }
+      }
+      try { pump(PF); } catch (e) {
+        diag.style.display = 'block';
+        diag.textContent += 'PUMP ERROR home: ' + e.message + '\n' + (e.stack || '').split('\n').slice(0,10).join('\n') + '\n';
+        return;
+      }
+      var h = BF.App.current || {};
+      if (!q.quiet) { diag.style.display = 'block'; }
+      diag.textContent = 'DIAG home cards2=' + (h.cards2 ? h.cards2.length : 'null') +
+        ' headers=' + (h.headers ? h.headers.length : 'null') +
+        ' chip=' + h.activeChip +
+        ' contentH=' + (h.contentH == null ? 'null' : Math.round(h.contentH)) +
+        ' minScroll=' + (h.minScroll == null ? 'null' : Math.round(h.minScroll)) + '\n';
+      return;
+    }
     try {
       if (q.daily === '1') { BF.App.go('play', { daily: true }); }
       else { BF.App.go(game, pick ? { pickDiff: true, game: game } : { level: level }); }
@@ -90,15 +130,41 @@
       diag.textContent += 'NAV ERROR ' + game + ': ' + e.message + '\n' + (e.stack || '').split('\n').slice(0, 4).join('\n') + '\n';
       return;
     }
-    // 进关后自动关掉「玩法说明」弹框露出棋盘（board 模式且要求 close=1）
     if (!pick && q.close === '1') {
       var c0 = BF.App.current;
       if (c0 && c0.showRule && c0.ruleOk) { try { BF.RuleTip.close(c0); } catch (e2) {} }
     }
-    pump(150);
+    pump(PF);
+    // 瞬时记忆专用：直接落到指定阶段并定住倒计时，避免靠帧数猜（仅对该场景生效）
+    if (q.recall && BF.App.current && BF.App.current.startQuiz) {
+      var rc = BF.App.current;
+      try {
+        if (q.recall === 'quiz') {
+          rc.startQuiz(); rc.quizT = rc.answerMs * 0.62;
+        } else if (q.recall === 'reveal') {
+          rc.startQuiz(); rc.answer(rc.questions[0].answerIndex);
+          rc.revealT = rc.revealMs * 0.6;
+        } else if (q.recall === 'win') {
+          rc.correctCount = rc.M; rc.elapsed = 21300; rc.onSolved(); rc.win.t = 400;
+        }
+        rc.fadeIn = 0;
+        rc.render(BF.platform.ctx);
+      } catch (e3) {
+        diag.textContent += 'RECALL STATE ERROR: ' + e3.message + '\n' + (e3.stack || '') + '\n';
+      }
+    }
+    // 调试：dbg=mark → 标记一辆车；dbg=hint → 用一次提示（供截图核查新视觉）
+    if (q.dbg === 'mark' || q.dbg === 'hint') {
+      var dc = BF.App.current;
+      if (dc && dc.cars && dc.cars.length > 1) {
+        if (q.dbg === 'hint') { dc.doAction('hint'); }
+        else { dc.markMode = true; dc.cars[1].mark = true; }
+        pump(30);
+      }
+    }
     var c = BF.App.current || {};
     var card = c.ruleCard ? ('[' + [c.ruleCard.x, c.ruleCard.y, c.ruleCard.w, c.ruleCard.h].map(Math.round).join(',') + ']') : 'null';
-    diag.style.display = 'block';
+    if (!q.quiet) { diag.style.display = 'block'; }
     diag.textContent = 'DIAG showRule=' + !!c.showRule +
       ' ruleAnim=' + (c.ruleAnim == null ? 'null' : c.ruleAnim.toFixed(3)) +
       ' fadeIn=' + (c.fadeIn == null ? 'null' : c.fadeIn.toFixed(3)) +

@@ -71,7 +71,10 @@ load('js/scenes/levels.js'); load('js/scenes/diffpick.js'); load('js/scenes/play
 load('js/scenes/diff.js'); load('js/game/bottle.js'); load('js/scenes/bottle.js');
 load('js/game/cipher.js'); load('js/scenes/cipher.js'); load('js/game/rush.js');
 load('js/scenes/rush.js'); load('js/game/blocks.js'); load('js/scenes/blocks.js');
-load('js/game/sudoku.js'); load('js/scenes/sudoku.js'); load('js/app.js');
+load('js/scenes/ruletip.js');
+load('js/game/sudoku.js'); load('js/game/mine.js');
+load('js/scenes/sudoku.js'); load('js/scenes/mine.js');
+load('js/game/picross.js'); load('js/scenes/picross.js'); load('js/app.js');
 
 var app = BF.App;
 app.go('sudoku', { game: 'sudoku', level: 1 });

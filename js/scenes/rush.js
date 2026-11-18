@@ -9,7 +9,8 @@
  *            浅蓝车窗 + 白色斜高光 + 深色轮子；警车白车身 + 黑门带 + 红蓝警灯条 + 小警徽。
  *   4) 交互：按住一辆车沿自身轴向拖动，松手吸附到最近合法格；非法位置（被挡）拖动时
  *            实时被夹住，不会穿模；警车到达出口 → 自动驶出动画 → 结算弹窗。
- *   5) 底部：撤销 / 重置 / 提示（每关限 1 次；提示运行时跑 BFS 求最优解的下一步，画箭头）。
+ *   5) 底部：撤销 / 重置 / 提示（每关 3 次）/ 倒放（把本局步骤倒序快退回初始）/ 标记（高亮车辆）。
+ *      提示运行时跑 BFS 求最优解的下一步，画脉动箭头；倒放用 this.history 快照逐格倒滑。
  *
  * 整体结构照抄 cipher.js（点按 + 结算弹窗 + 底部按钮 + 返回路由），
  * 区别是把「拼一行密码」换成「拖动车辆求解」，并多了 onMove（拖动）与驶出动画。
@@ -39,6 +40,9 @@
     this.win = false;
     this.winT = 0;
     this.result = null;
+    this.markMode = false;  // 标记模式：开启后点车=打/取消高亮标记（不拖动）
+    this.rewind = null;     // 倒放中：{ moves, idx, t, dur }
+    this.hintLeft = 3;      // 本关剩余提示次数
   }
 
   SceneRush.prototype.enter = function (params) {
@@ -65,13 +69,15 @@
     // 深拷贝车辆（cars[0] = 警车，horiz/len/x/y 可变）
     this.cars = this.puzzle.cars.map(function (c) {
       return { id: c.id, horiz: c.horiz, len: c.len, x: c.x, y: c.y,
-               ci: c.ci, police: c.police };
+               ci: c.ci, police: c.police, mark: false };
     });
 
     this.steps = 0;
-    this.history = [];       // 每步前的坐标快照（撤销用）
+    this.history = [];       // 每步前的坐标快照（撤销 / 倒放共用）
     this.hint = null;
-    this.hintUsed = false;
+    this.hintLeft = 3;       // 每关 3 次提示
+    this.markMode = false;
+    this.rewind = null;
     this.win = false;
     this.winT = 0;
     this.drag = null;
@@ -100,14 +106,17 @@
     this.headerY = top;
     this.back = { x: 12, y: top + 6, w: 40, h: 40 };
 
-    // 底部按钮行
+    // 底部按钮行（5 个：撤销 / 重置 / 提示 / 倒放 / 标记）
     var btnH = 46;
     var btnY = H - pf.safeBottom - btnH - 8;
-    var bw = (W - 24 - 10 * 2) / 3;
+    var gap = 8;
+    var bw = (W - 24 - gap * 4) / 5;
     this.btns = [
-      { x: 12, y: btnY, w: bw, h: btnH, key: 'undo', label: '撤销', icon: 'undo' },
-      { x: 12 + bw + 10, y: btnY, w: bw, h: btnH, key: 'reset', label: '重置', icon: 'reset' },
-      { x: 12 + (bw + 10) * 2, y: btnY, w: bw, h: btnH, key: 'hint', label: '提示', icon: 'hint' }
+      { x: 12,                y: btnY, w: bw, h: btnH, key: 'undo',   label: '撤销', icon: 'undo' },
+      { x: 12 + (bw + gap),   y: btnY, w: bw, h: btnH, key: 'reset',  label: '重置', icon: 'reset' },
+      { x: 12 + (bw + gap) * 2, y: btnY, w: bw, h: btnH, key: 'hint', label: '提示', icon: 'hint' },
+      { x: 12 + (bw + gap) * 3, y: btnY, w: bw, h: btnH, key: 'rewind', label: '倒放', icon: 'rewind' },
+      { x: 12 + (bw + gap) * 4, y: btnY, w: bw, h: btnH, key: 'mark',  label: '标记', icon: 'mark' }
     ];
 
     // 棋盘：在头部与底部按钮之间垂直居中；右侧预留一条出口车道（约 1 格宽）
@@ -213,6 +222,23 @@
     if (this.toast) { this.toast.t -= dt; if (this.toast.t <= 0) { this.toast = null; } }
     if (this.shake) { this.shake.t -= dt; if (this.shake.t <= 0) { this.shake = null; } }
     if (this.pickDiff) { return; }                    // 难度首屏不跑玩法状态机
+    // 倒放动画：把本局步骤按倒序一格格滑回初始局面
+    if (this.rewind) {
+      var rw = this.rewind, mv = rw.moves[rw.idx];
+      if (mv) {
+        rw.t += dt;
+        var k = U.clamp(rw.t / rw.dur, 0, 1), e = U.easeOutCubic(k);
+        var rc = this.cars[mv.j];
+        var pos = mv.from + (mv.to - mv.from) * e;
+        if (rc.horiz) { rc.x = pos; } else { rc.y = pos; }
+        if (k >= 1) {
+          if (rc.horiz) { rc.x = mv.to; } else { rc.y = mv.to; }
+          rw.idx++; rw.t = 0;
+          if (rw.idx >= rw.moves.length) { this.finishRewind(); }
+        }
+      }
+      return;                                         // 倒放期间不跑胜利/结算状态机
+    }
     if (this.result) { this.result.t += dt; }
     if (this.win && !this.result) {
       this.winT += dt;
@@ -232,6 +258,12 @@
     // header 左上角「?」：随时重看玩法说明（无视「不再提示」）
     if (!this.win && !this.gameOver && !this.pickDiff &&
         U.pointInRect(x, y, BF.RuleTip.btn(this))) { BF.RuleTip.enter(this, { force: true }); return; }
+    // 倒放中：屏蔽一切输入，只允许再点「倒放」立即播完
+    if (this.rewind) {
+      var rb = this.btnByKey('rewind');
+      if (rb && U.pointInRect(x, y, rb)) { this.finishRewind(); }
+      return;
+    }
     if (this.pickDiff) {                              // 难度自选首屏（共用实现）
       BF.DiffPick.onDown(this, x, y); return;
     }
@@ -251,6 +283,8 @@
     for (i = this.cars.length - 1; i >= 0; i--) {
       var r = this.carRect(this.cars[i]);
       if (U.pointInRect(x, y, r)) {
+        // 标记模式：点车=打/取消高亮标记（不进入拖动，也不做卡死检测）
+        if (this.markMode) { this.cars[i].mark = !this.cars[i].mark; return; }
         var blk = [];
         var range = this.legalRange(i, blk);
         // 当前完全动不了（被两侧/上下夹死）→ 不进入拖动，改为抖一下 + 高亮"是谁挡着" +
@@ -290,6 +324,7 @@
 
   SceneRush.prototype.onUp = function (x, y) {
     if (this.showRule) { BF.RuleTip.onUp(this, x, y); return; }
+    if (this.rewind) { return; }                      // 倒放中不响应抬起
     if (this.pickDiff) {                              // 难度自选首屏（共用实现）
       BF.DiffPick.onUp(this, x, y); return;
     }
@@ -341,6 +376,7 @@
 
   SceneRush.prototype.doAction = function (key) {
     if (key === 'undo') {
+      if (this.rewind) { return; }
       if (!this.history.length) { this.showToast('没有可撤销的步骤'); return; }
       var snap = this.history.pop();
       for (var i = 0; i < this.cars.length; i++) {
@@ -351,20 +387,70 @@
     } else if (key === 'reset') {
       BF.RuleTip.skipOnce(this);   // 重玩本关不重复弹规则
         this.enter({ game: this.game, level: this.level, daily: this.isDaily });
+    } else if (key === 'rewind') {
+      if (this.rewind) { this.finishRewind(); }       // 倒放中再点 = 立即播完
+      else { this.startRewind(); }
+    } else if (key === 'mark') {
+      this.markMode = !this.markMode;
+      this.showToast(this.markMode ? '标记模式：点车辆可打 / 取消高亮' : '已退出标记模式');
     } else if (key === 'hint') {
       this.doHint();
     }
   };
 
   SceneRush.prototype.doHint = function () {
-    if (this.result || this.win) { return; }
-    if (this.hintUsed) { this.showToast('本关提示已用完'); return; }
+    if (this.result || this.win || this.rewind) { return; }
+    if (this.hintLeft <= 0) { this.showToast('本关提示已用完（每关 3 次）'); return; }
     var positions = this.cars.map(function (c) { return c.horiz ? c.x : c.y; });
     var board = { size: this.size, exitRow: this.exitRow, cars: this.cars };
     var step = BF.RushGen.solveStep(board, positions);
     if (!step) { this.showToast('已经没有可走的步了'); return; }
     this.hint = { i: step.car, dir: step.dir };
-    this.hintUsed = true;
+    this.hintLeft -= 1;
+  };
+
+  /** 按 key 取底部按钮（倒放中据此判断是否点中「倒放」本身） */
+  SceneRush.prototype.btnByKey = function (key) {
+    for (var i = 0; i < this.btns.length; i++) {
+      if (this.btns[i].key === key) { return this.btns[i]; }
+    }
+    return null;
+  };
+
+  /**
+   * 倒放：把 this.history 里的快照按倒序播回。history[k] 是「第 k+1 步之前」的全盘坐标，
+   * 故相邻两个快照（以及最后一张与当前 live）之间恰好只差一辆车的一步。
+   * 这里反推出每步「该谁、从哪滑回哪」，逐格 easeOutCubic 动画倒滑，全部播完即回到初始。
+   */
+  SceneRush.prototype.startRewind = function () {
+    var hist = this.history, n = hist.length;
+    if (!n) { this.showToast('没有可倒放的步骤'); return; }
+    var live = this.cars.map(function (c) { return { x: c.x, y: c.y }; });
+    var moves = [];
+    for (var k = n - 1; k >= 0; k--) {
+      var a = hist[k];                          // 较早状态（倒放目标）
+      var b = (k === n - 1) ? live : hist[k + 1]; // 较晚状态（倒放起点）
+      for (var j = 0; j < this.cars.length; j++) {
+        if (a[j].x !== b[j].x || a[j].y !== b[j].y) {
+          var car = this.cars[j];
+          moves.push({ j: j, from: car.horiz ? b[j].x : b[j].y,
+                             to: car.horiz ? a[j].x : a[j].y });
+        }
+      }
+    }
+    this.rewind = { moves: moves, idx: 0, t: 0, dur: U.clamp(5000 / n, 90, 200) };
+    this.drag = null; this.pressBtn = null; this.hint = null;
+  };
+
+  /** 倒放结束（或跳过）：落回初始局面、步数/历史清零、提示箭头清掉 */
+  SceneRush.prototype.finishRewind = function () {
+    var init = this.history.length ? this.history[0] : null;
+    if (init) {
+      for (var i = 0; i < this.cars.length; i++) {
+        this.cars[i].x = init[i].x; this.cars[i].y = init[i].y;
+      }
+    }
+    this.steps = 0; this.history = []; this.hint = null; this.rewind = null;
   };
 
   SceneRush.prototype.onSolved = function () {
@@ -499,10 +585,10 @@
       weight: '700', align: 'center', baseline: 'middle' });
     ctx.restore();
 
-    // 停车位网格线（浅色）
+    // 停车位网格线（横竖线，调明显：alpha 0.16 / 1.5px）
     ctx.save();
-    ctx.strokeStyle = 'rgba(23,26,31,0.05)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(23,26,31,0.16)';
+    ctx.lineWidth = 1.5;
     for (var k = 1; k < size; k++) {
       ctx.beginPath();
       ctx.moveTo(this.bx + k * cell, this.by);
@@ -566,6 +652,8 @@
       // 拖动时轻微放大 + 阴影，给"被拿起"的反馈
       this.drawCar(ctx, dr, dc);
     }
+    // 标记高亮（画在车之上，压住谁都不会被盖）
+    this.renderMarks(ctx);
     // 警车驶出动画
     if (this.win) {
       var p = this.cars[0];
@@ -608,6 +696,31 @@
     var off = Math.sin(this.t * 0.055) * this.cell * 0.09 * k;
     if (car.horiz) { rect.x += off; } else { rect.y += off; }
     return rect;
+  };
+
+  /** 标记高亮：给打了 mark 的车画一圈脉动金色描边 + 右上角小旗角标 */
+  SceneRush.prototype.renderMarks = function (ctx) {
+    var cell = this.cell;
+    for (var i = 0; i < this.cars.length; i++) {
+      var car = this.cars[i];
+      if (!car.mark) { continue; }
+      if (this.win && car.police) { continue; }    // 警车驶出动画单独画
+      var r = this.carRect(car);
+      this.applyShake(r, car, i);                  // 抖动期间跟着一起抖
+      var pulse = 0.62 + 0.38 * Math.abs(Math.sin(this.t * 0.007));
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.strokeStyle = T.gold;
+      ctx.lineWidth = Math.max(2.5, cell * 0.07);
+      D.roundRect(ctx, r.x - cell * 0.06, r.y - cell * 0.06,
+        r.w + cell * 0.12, r.h + cell * 0.12, Math.min(r.w, r.h) * 0.34);
+      ctx.stroke();
+      // 右上角小旗角标（金底白旗）
+      var bx = r.x + r.w - cell * 0.02, by = r.y + cell * 0.02;
+      D.fillRound(ctx, bx - cell * 0.28, by, cell * 0.28, cell * 0.28, cell * 0.10, T.gold);
+      D.icon(ctx, 'mark', bx - cell * 0.14, by + cell * 0.14, cell * 0.17, '#FFFFFF');
+      ctx.restore();
+    }
   };
 
   /**
@@ -748,25 +861,46 @@
   };
 
   SceneRush.prototype.renderFooter = function (ctx) {
-    var undoDead = !this.history.length;
-    var hintDead = this.hintUsed || this.win || !!this.result;
+    var W = BF.platform.width;
+    var fsz = W < 370 ? 13 : 15;                     // 窄屏 5 按钮放不下就缩字号
+    var busy = !!this.rewind;                        // 倒放中：其它键置灰
+    var undoDead = busy || !this.history.length;
+    var hintDead = busy || this.hintLeft <= 0 || this.win || !!this.result;
+    var rwDead = busy || !this.history.length || this.win || !!this.result;
+    var hintBtn = null;
     for (var i = 0; i < this.btns.length; i++) {
       var b = this.btns[i];
       if (b.key === 'undo') {
         D.button(ctx, b, b.label,
-          { fill: '#FFFFFF', color: undoDead ? T.textSub : T.text,
+          { fill: '#FFFFFF', color: undoDead ? T.textSub : T.text, size: fsz,
             icon: b.icon, iconColor: undoDead ? T.textSub : T.text, disabled: undoDead });
       } else if (b.key === 'reset') {
-        D.button(ctx, b, b.label, { fill: '#FFFFFF', color: T.text, icon: b.icon, iconColor: T.textSub });
-      } else { // hint
-        if (hintDead) {
-          D.button(ctx, b, b.label,
-            { fill: '#FFFFFF', color: T.textSub, icon: b.icon, iconColor: T.textSub, disabled: true });
-        } else {
-          D.button(ctx, b, b.label,
-            { fill: U.rgba(T.accent, 0.12), color: T.accent, icon: b.icon, iconColor: T.accent });
-        }
+        D.button(ctx, b, b.label,
+          { fill: '#FFFFFF', color: busy ? T.textSub : T.text, size: fsz,
+            icon: b.icon, iconColor: T.textSub });
+      } else if (b.key === 'rewind') {
+        D.button(ctx, b, b.label, busy
+          ? { fill: T.accent, color: '#FFFFFF', size: fsz, icon: b.icon, iconColor: '#FFFFFF' }
+          : { fill: '#FFFFFF', color: rwDead ? T.textSub : T.text, size: fsz,
+              icon: b.icon, iconColor: rwDead ? T.textSub : T.text, disabled: rwDead });
+      } else if (b.key === 'mark') {
+        D.button(ctx, b, b.label, this.markMode
+          ? { fill: U.rgba(T.accent, 0.16), color: T.accent, size: fsz, icon: b.icon, iconColor: T.accent }
+          : { fill: '#FFFFFF', color: busy ? T.textSub : T.text, size: fsz,
+              icon: b.icon, iconColor: T.textSub });
+      } else if (b.key === 'hint') {
+        hintBtn = b;
+        D.button(ctx, b, b.label, hintDead
+          ? { fill: '#FFFFFF', color: T.textSub, size: fsz, icon: b.icon, iconColor: T.textSub, disabled: true }
+          : { fill: U.rgba(T.accent, 0.12), color: T.accent, size: fsz, icon: b.icon, iconColor: T.accent });
       }
+    }
+    // 提示剩余次数角标（所有按钮画完再画，避免被右侧按钮盖住）
+    if (hintBtn && !hintDead) {
+      var bcx = hintBtn.x + hintBtn.w - 5, bcy = hintBtn.y + 5, br = 9;
+      D.fillRound(ctx, bcx - br, bcy - br, br * 2, br * 2, br, T.accent);
+      D.text(ctx, String(this.hintLeft), bcx, bcy + 0.5,
+        { size: 11, color: '#FFFFFF', weight: '700', align: 'center', baseline: 'middle' });
     }
   };
 
